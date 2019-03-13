@@ -11,14 +11,16 @@ All connections will require authentication via the same credentials as the norm
 
 # R Example
 library(jsonlite)
-stimulusresponses <- fromJSON("https://<frinex-url>/<experiment-admin>/stimulusresponses")
+
+stimulusresponses <- fromJSON("https://\<frinex-url\>/\<experiment-admin\>/stimulusresponses")
+
 paste(stimulusresponses$_embedded$stimulusresponses$stimulusId, ":", stimulusresponses$_embedded$participants$userAgent)
 
 # CURL Example
 \# login and store the requred JSESSIONID in a file called cookies.txt
 
-curl -i -X POST -d username=############### -d password=############### -c cookies.txt https://<frinex-url>/<experiment-admin>/login
+curl -i -X POST -d username=############### -d password=############### -c cookies.txt https://\<frinex-url\>/\<experiment-admin\>/login
 
 \# select data from the REST service, authenticated with the required JSESSIONID from the file cookies.txt
 
-curl -i --header "Accept:application/json" -X GET -b cookies.txt https://<frinex-url>/<experiment-admin>/stimulusresponses
+curl -i --header "Accept:application/json" -X GET -b cookies.txt https://\<frinex-url\>/\<experiment-admin\>/stimulusresponses
