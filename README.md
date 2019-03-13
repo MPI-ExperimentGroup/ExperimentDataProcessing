@@ -2,7 +2,7 @@
 
 This respository contains scripts used to process and validate the data collected by Frinex experients.
 
-When committing to this repository, do add comments so others can understand and expand on your work, don't commit server paths, URLs, usernames or passwords. Sensitive data can be instead be placed in a properties file or similar outside of the repository and loaded by your scripts.
+When committing to this repository, do add comments so others can understand and expand on your work, don't commit server paths, URLs, usernames or passwords. Sensitive data can instead be placed in a properties file or similar outside of the repository and loaded by your scripts.
 
 # JSON REST Interface
 The Frinex administration system has a REST interface which can be accessed for each experiment via the endpoints: stimulusresponses, tagpairevents, tagevents, participants, groupdata, audiodata, screenviews and timestamps.
