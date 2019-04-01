@@ -348,7 +348,9 @@ get_test_duration <- function(screenviews_1user,
                                 startScreenString)[3]
   
   end_submit_date <- subset(screenviews_1user, 
-                            screenName == "Admin")  [3]  
+                            screenName == "Admin")  [3] 
+  
+  end_submit_date <- end_submit_date[1,]
   
   startTime <- strptime(substring(start_submit_date, 1, nchar(start_submit_date)-9), 
                         format = "%Y-%m-%dT%H:%M:%S")
