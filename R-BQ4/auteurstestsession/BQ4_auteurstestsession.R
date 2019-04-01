@@ -81,7 +81,7 @@ for (rawUUID in participants_uuids$V1)  {
     print("Num events for user:")
     
     events <- subset(tagpairevents_data, 
-                     userId == user & eventTag != "summary")
+                     userId == user & eventTag != "summary" & eventTag != "DataSubmission")
     
     print(nrow(events))
     
