@@ -64,7 +64,7 @@ user_responses <- data.frame()
 
 eventsMainTest = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & !grepl("Practice", tagValue1) & !(tagValue1=="description"))
 
-eventsPractice = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & (grepl("Practice", tagValue1) || grepl("tag_practice", tagValue2)))
+# eventsPractice = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & (grepl("Practice", tagValue1) || grepl("tag_practice", tagValue2)))
 
 
 
