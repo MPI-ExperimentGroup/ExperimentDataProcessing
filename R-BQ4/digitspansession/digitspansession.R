@@ -119,8 +119,13 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
     n_correct <- length(which(new_user_response$isUserCorrect == "correct"))
     n_incorrect <- length(which(new_user_response$isUserCorrect == "incorrect"))
     
-    correct_rows <- subset(new_user_response, isUserCorrect == "correct")
-    max_length <- max(correct_rows$stimulusLength)
+    
+    if (n_correct > 0) {
+      correct_rows <- subset(new_user_response, isUserCorrect == "correct")
+      max_length <- max(correct_rows$stimulusLength)
+    } else {
+      max_length <- " " 
+    }
     
     # Get test duration for participant from screenviews
     screenviews_1user <- subset(screenviews_data, userId == user)
@@ -141,8 +146,8 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
     
     new_user_scores <- data.frame(user, n_correct, n_incorrect, max_length, testDuration)
     names(new_user_scores) <- c("userId", 
-                                paste0(roundname, " N correct"),
-                                paste0(roundname,  " N incorrect"),
+                                paste0(roundname, "Correct"),
+                                paste0(roundname,  "Incorrect"),
                                 paste0(roundname, " max length achieved"),
                                 paste0(roundname, " duration (min)")
     ) 
@@ -168,6 +173,8 @@ user_responses_backward <- results_backward$user_responses
 # write.csv(user_scores_backward, file=paste0(experiment_abr,".backward.user_scores.csv"))
 
 user_scores <- merge(user_scores_forward, user_scores_backward)
+user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCorrect)
+user_scores$totalIncorrect <- (user_scores$forwardIncorrect + user_scores$backwardIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
 # user_responses_forward[] <- lapply(user_responses_forward, as.character)
