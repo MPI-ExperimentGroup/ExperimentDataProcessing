@@ -64,7 +64,7 @@ user_responses <- data.frame()
 
 eventsMainTest = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & !grepl("Practice", tagValue1) & !(tagValue1=="description"))
 
-# eventsPractice = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & (grepl("Practice", tagValue1) || grepl("tag_practice", tagValue2)))
+#eventsPractice = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & (grepl("Practice", tagValue1) || grepl("tag_practice", tagValue2)))
 
 
 
@@ -89,8 +89,8 @@ for (rawUUID in participants_uuids$V1)  {
       new_user_response <- new_user_response %>%
         mutate(eventTag = ifelse(eventTag %in% c("Correct", "Incorrect"), 
                                  "isUserCorrect", eventTag))
+      
       # turn description into a unique tag
-      descriptionIndex <- paste("description", index, sep="_")
       new_user_response <- new_user_response %>%
         mutate(tagValue1 = ifelse(eventTag %in% c("stimulusInfo"), 
                                   tagValue2, tagValue1))
