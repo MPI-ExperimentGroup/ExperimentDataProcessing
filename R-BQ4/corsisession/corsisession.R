@@ -79,8 +79,9 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        new_user_stimulus_response <- subset(raw_user_responses, stimulusId == stimulusID)
       
         # adding column representing stimulus sequence length
-       length_from_id <-  ifelse(grepl("Practice", stimulusID), "Length2", strsplit(new_user_stimulus_response$stimulusId, "_")[,2])
+       length_from_id <-  ifelse(grepl("Practice", stimulusID), "Length2", strsplit(stimulusID, "_")[2])
        new_user_stimulus_response$stimulusLength <- substr(length_from_id, 7, nchar(length_from_id))
+      
        
        # adding column representing response length
        new_user_stimulus_response$responseLength <-  nchar(new_user_stimulus_response$response)
@@ -165,10 +166,7 @@ results_forward <- harvest_scores(participants_uuids$V1, responsesForward, "forw
 user_scores_forward <- results_forward$user_scores
 user_responses_forward <- results_forward$user_responses
 
-user_practice_scores <- merge(user_scores_practice_forward, user_scores_practice_backward)
-user_practice_scores$totalCorrect <- (user_practice_scores$forwardCorrect + user_practice_scores$backwardCorrect)
-user_practice_scores$totalIncorrect <- (user_practice_scores$forwardIncorrect + user_practice_scores$backwardIncorrect)
-write.csv(user_practice_scores, file=paste0(experiment_abr,".user_practice_scores.csv"))
+
 
 results_practice_backward <- harvest_scores(participants_uuids$V1, responsesPracticeBackward, "practiceBackwrard", screenviews_data, "RunTrialsBackwardPractice", "delayBackward")
 user_scores_practice_backward <- results_practice_backward$user_scores
@@ -177,6 +175,11 @@ user_responses_practice_backward <- results_practice_backward$user_responses
 results_backward <- harvest_scores(participants_uuids$V1, responsesBackward, "backward", screenviews_data, "RunTrialsBackward", "Admin")
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
+
+user_practice_scores <- merge(user_scores_practice_forward, user_scores_practice_backward)
+user_practice_scores$totalCorrect <- (user_practice_scores$forwardCorrect + user_practice_scores$backwardCorrect)
+user_practice_scores$totalIncorrect <- (user_practice_scores$forwardIncorrect + user_practice_scores$backwardIncorrect)
+write.csv(user_practice_scores, file=paste0(experiment_abr,".user_practice_scores.csv"))
 
 user_scores <- merge(user_scores_forward, user_scores_backward)
 user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCorrect)
