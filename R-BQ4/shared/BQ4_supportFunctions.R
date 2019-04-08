@@ -336,7 +336,7 @@ reduce_to_single <- function(raw_bandnumbers, add_isUserCorrect = FALSE){
 # Get test duration from screenviews of one user
 # By default, the function assumes that the start date has a screenName that
 # starts with "stimuliScreen". This works for the auteurs- and spellingtest,
-# but not for the prescriptivegrammar test, which overrides these defaults.
+# but not for the other test, which overrides these defaults.
 # By default, the function assumes thta the end date has a screen name "Admin",
 # but it is so for the test with practice rounds, when results of the practice rounds
 # have to be taken in separate tables.
@@ -344,7 +344,8 @@ reduce_to_single <- function(raw_bandnumbers, add_isUserCorrect = FALSE){
 get_test_duration <- function(screenviews_1user, 
                               startScreenString="stimuliScreen",
                               startScreenMaxChars=13,
-                              endScreen="Admin"){
+                              endScreen="Admin",
+                              sec=FALSE){
   
   # Get test duration from submitDates in screenviews
   start_submit_date <- subset(screenviews_1user, 
@@ -362,7 +363,14 @@ get_test_duration <- function(screenviews_1user,
   endTime <- strptime(substring(end_submit_date, 1, nchar(end_submit_date)-9), 
                       format = "%Y-%m-%dT%H:%M:%S")
   
-  testDuration <- round(as.numeric(endTime -startTime), 1)
+  if (sec) {
+    startTime_ms <- as.numeric(startTime)
+    endTime_ms <- as.numeric(endTime)
+    testDuration <- endTime_ms-startTime_ms
+  } else {
+    testDuration <- round(as.numeric(endTime-startTime), 2)
+  }
+  
   
   return(list(startTime=startTime, endTime=endTime, testDuration=testDuration))
 }
