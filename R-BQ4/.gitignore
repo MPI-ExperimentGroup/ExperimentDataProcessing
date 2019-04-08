@@ -1,2 +1,4 @@
 # data and passwords 
 *.csv
+shared/*.csv
+shared/*.txt
