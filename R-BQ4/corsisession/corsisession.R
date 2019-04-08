@@ -49,12 +49,16 @@ screenviews_data <- unique(subset(screenviews[["currentData"]]))
 
 responsesPracticeForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsPracticeForward" & !is.na(response) & nchar(str_trim(response))>0 ))
 responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackwardPractice" & !is.na(response) & nchar(str_trim(response))>0))
+
 responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) & nchar(str_trim(response))>0 & is.na(isCorrect)))
 responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & nchar(str_trim(response))>0  & is.na(isCorrect)))
 
+responsesForwardCheck <- subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(isCorrect))
+responsesBackwardCheck <-subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(isCorrect))
+
 ## help function 
 
-harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName) {
+harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName, checkResponses = NULL) {
   
   user_scores <- data.frame()
   user_responses <- data.frame()
@@ -119,12 +123,75 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
          new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 9 && new_user_stimulus_response$response=="987654321", 1, new_user_stimulus_response$isCorrect )
        }
        
+       # check up for main rounds for a pair user-stimulus
+       if (!grepl("Practice", stimulusID)) {
+         checkResponseRow <- subset(checkResponses, userId==user & stimulusId == stimulusID & nchar(response)==max_resp_length)
+         checkResp <- checkResponseRow[1,]$isCorrect
+         if ((checkResp == TRUE && new_user_stimulus_response$isCorrect==0) || (checkResp == FALSE && new_user_stimulus_response$isCorrect==1)) {
+           print("Check up fail for response, stimulus:")
+           print(stimulusID)
+           print("User:")
+           print(user)
+           print("Calculated by R-script response:")
+           print(new_user_stimulus_response$isCorrect)
+           print("Calculated Frinex response:")
+           print(checkResp)
+           stop()
+         }
+       }
+       
+       
+       
        new_user_responses <- rbind(new_user_responses, new_user_stimulus_response)
        
     }
     
    
-    
+    # check up for main rounds for a particular user
+    if (!grepl("practice", roundname)) {
+      
+      max_length <- max(new_user_responses$stimulusLength)
+      for (l in 3:max_length) {
+        lengthRows <- subset(new_user_responses, new_user_responses$stimulusLength==l)
+        
+        if (nrow(lengthRows) != 2) {
+          print("The number of rows for a particulra length is not 2.")
+          print("User:")
+          print(user)
+          print("Length:")
+          print(l)
+          print("stimuli IDs:")
+          print(new_user_responses$stimulusId)
+          stop()
+        }
+        
+        if (l<max_length) {
+          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect == 0) {
+            print("The number of correct responses for a particular stimulus length (not maximal length) is zero.")
+            print("User:")
+            print(user)
+            print("Length:")
+            print(l)
+            print("stimuli IDs:")
+            print(new_user_responses$stimulusId)
+          }
+        } else {
+          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect > 0) {
+            print("The number of correct responses for a particular stimulus length (for maximal length) is not zero.")
+            print("The test should have bee continued")
+            print("User:")
+            print(user)
+            print("Length:")
+            print(l)
+            print("stimuli IDs:")
+            print(new_user_responses$stimulusId)
+          }
+        }
+        
+      }
+   
+    }
+   
     
     user_responses <- rbind(user_responses, new_user_responses)
     
@@ -174,16 +241,30 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
   
 }
 
+
 ##--Get aggregates practice ----------------------------------------------##
 
 results_practice_forward <- harvest_scores(participants_uuids$V1, responsesPracticeForward, "practiceForward", screenviews_data, "RunTrialsPracticeForward", "delayForward")
 user_scores_practice_forward <- results_practice_forward$user_scores
 user_responses_practice_forward <- results_practice_forward$user_responses
 
+if (nrow(participants_uuids) != nrow(user_scores_practice_forward) ) {
+  print("Practice Forward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
+  print(nrows(participants_uuids))
+  print(nrows(user_scores_practice_forward))
+}
+
+
 
 results_practice_backward <- harvest_scores(participants_uuids$V1, responsesPracticeBackward, "practiceBackward", screenviews_data, "RunTrialsBackwardPractice", "delayBackward")
 user_scores_practice_backward <- results_practice_backward$user_scores
 user_responses_practice_backward <- results_practice_backward$user_responses
+
+if (nrow(participants_uuids) != nrow(user_scores_practice_backward) ) {
+  print("Practice Forward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
+  print(nrows(participants_uuids))
+  print(nrows(user_scores_practice_backward))
+}
 
 user_practice_scores <- merge(user_scores_practice_forward, user_scores_practice_backward)
 user_practice_scores$totalCorrect <- (user_practice_scores$practiceForwardCorrect + user_practice_scores$practiceBackwardCorrect)
@@ -191,20 +272,36 @@ user_practice_scores$totalIncorrect <- (user_practice_scores$practiceForwardInco
 write.csv(user_practice_scores, file=paste0(experiment_abr,".user_practice_scores.csv"))
 
 
+
+
 ##--Get aggregates main rounds ----------------------------------------------##
 
-results_forward <- harvest_scores(participants_uuids$V1, responsesForward, "forward", screenviews_data, "RunTrialsForward", "instructionsBackward")
+results_forward <- harvest_scores(participants_uuids$V1, responsesForward, "forward", screenviews_data, "RunTrialsForward", "instructionsBackward", responsesForwardCheck)
 user_scores_forward <- results_forward$user_scores
 user_responses_forward <- results_forward$user_responses
 
+if (nrow(participants_uuids) != nrow(user_scores_forward) ) {
+  print("Main Forward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
+  print(nrows(participants_uuids))
+  print(nrows(user_scores_forward))
+}
 
-results_backward <- harvest_scores(participants_uuids$V1, responsesBackward, "backward", screenviews_data, "RunTrialsBackward", "Admin")
+
+
+results_backward <- harvest_scores(participants_uuids$V1, responsesBackward, "backward", screenviews_data, "RunTrialsBackward", "Admin", responsesBackwardCheck)
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
+
+if (nrow(participants_uuids) != nrow(user_scores_backward) ) {
+  print("Practice Nackward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
+  print(nrows(participants_uuids))
+  print(nrows(user_scores_backward))
+}
 
 
 user_scores <- merge(user_scores_forward, user_scores_backward)
 user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCorrect)
 user_scores$totalIncorrect <- (user_scores$forwardIncorrect + user_scores$backwardIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
+
 
