@@ -146,16 +146,61 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        
     }
     
+    n_correct <- length(which(new_user_responses$isCorrect == 1))
+    n_incorrect <- length(which(new_user_responses$isCorrect == 0))
+    
+    # max length achieved
+    if (n_correct > 0) {
+      correct_rows <- subset(new_user_responses, isCorrect == 1)
+      max_length <- max(correct_rows$stimulusLength)
+    } else {
+      max_length <- 0 
+    }
+    
+    max_length <- as.numeric(max_length)
    
-    # check up for main rounds for a particular user
+    # check up for a main round for a particular user
     if (!grepl("practice", roundname)) {
-      
-      max_length <- max(new_user_responses$stimulusLength)
-      for (l in 3:max_length) {
-        lengthRows <- subset(new_user_responses, new_user_responses$stimulusLength==l)
+      if (max_length > 0 ) {
         
-        if (nrow(lengthRows) != 2) {
-          print("The number of rows for a particulra length is not 2.")
+        for (l in 3:max_length) {
+          lengthRows <- subset(new_user_responses, new_user_responses$stimulusLength==l)
+          
+          if (nrow(lengthRows) != 2) {
+            print("Error: The number of rows for a particulrar length is not 2.")
+            print("User:")
+            print(user)
+            print("Length:")
+            print(l)
+            print("stimuli IDs:")
+            print(new_user_responses$stimulusId)
+            stop()
+          } else {
+            print("Check-up passed: the number of rows for a particulrar length is 2.")
+          }
+          
+          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect == 0) {
+            print("Error: The number of correct responses for a particular stimulus length (not completely failed length) is zero.")
+            print("User:")
+            print(user)
+            print("Length:")
+            print(l)
+            print("stimuli IDs:")
+            print(new_user_responses$stimulusId)
+            stop()
+          } else {
+            print("Check-up passed: the number of correct responses for a particular stimulus length (not completely failed length) is not zero.")
+          }
+        } 
+      }
+      
+      # check if the experiment was stopped correctly 
+      if (max_length < 9) {
+        failedLength <- ifelse(max_length == 0, 3, max_length+1)
+        lengthRows <- subset(new_user_responses, new_user_responses$stimulusLength == failedLength) # the failed length
+        if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect > 0) {
+          print("Error: The number of correct responses for a particular stimulus length (for completely failed length) is not zero.")
+          print("The experiment should have been continued.")
           print("User:")
           print(user)
           print("Length:")
@@ -163,32 +208,11 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
           print("stimuli IDs:")
           print(new_user_responses$stimulusId)
           stop()
-        }
-        
-        if (l<max_length) {
-          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect == 0) {
-            print("The number of correct responses for a particular stimulus length (not maximal length) is zero.")
-            print("User:")
-            print(user)
-            print("Length:")
-            print(l)
-            print("stimuli IDs:")
-            print(new_user_responses$stimulusId)
-          }
         } else {
-          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect > 0) {
-            print("The number of correct responses for a particular stimulus length (for maximal length) is not zero.")
-            print("The test should have bee continued")
-            print("User:")
-            print(user)
-            print("Length:")
-            print(l)
-            print("stimuli IDs:")
-            print(new_user_responses$stimulusId)
-          }
+          print("Check-up passed: the number of correct responses for a particular stimulus length (completely failed length) is zero.")
         }
-        
       }
+      
    
     }
    
@@ -197,16 +221,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
     
     # filling in scores
-    n_correct <- length(which(new_user_responses$isCorrect == 1))
-    n_incorrect <- length(which(new_user_responses$isCorrect == 0))
-    
-    
-    if (n_correct > 0) {
-      correct_rows <- subset(new_user_responses, isCorrect == 1)
-      max_length <- max(correct_rows$stimulusLength)
-    } else {
-      max_length <- " " 
-    }
+    max_length <- ifelse(max_length == 0, " ", max_length)
     
     # Get test duration for participant from screenviews
     screenviews_1user <- subset(screenviews_info, userId == user)
@@ -223,7 +238,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     print("endTime")
     print(endTime)
     print("test duration")
-    print(paste0(as.character(testDuration), " minutes"))
+    print(paste0(as.character(testDuration), " seconds"))
     
     new_user_scores <- data.frame(user, n_correct, n_incorrect, max_length, testDuration)
     names(new_user_scores) <- c("userId", 
