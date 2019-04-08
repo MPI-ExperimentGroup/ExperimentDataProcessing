@@ -48,9 +48,9 @@ screenviews_data <- unique(subset(screenviews[["currentData"]]))
 
 
 responsesPracticeForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsPracticeForward" & !is.na(response) & nchar(str_trim(response))>0 ))
-responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsPracticeBackward" & !is.na(response) & nchar(str_trim(response))>0))
-responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) & nchar(str_trim(response))>0))
-responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & nchar(str_trim(response))>0))
+responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackwardPractice" & !is.na(response) & nchar(str_trim(response))>0))
+responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) & nchar(str_trim(response))>0 & is.na(isCorrect)))
+responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & nchar(str_trim(response))>0  & is.na(isCorrect)))
 
 ## help function 
 
@@ -79,7 +79,12 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        new_user_stimulus_response <- subset(raw_user_responses, stimulusId == stimulusID)
       
         # adding column representing stimulus sequence length
-       length_from_id <-  ifelse(grepl("Practice", stimulusID), "Length2", strsplit(stimulusID, "_")[2])
+       if (grepl("Practice", stimulusID)) {
+         length_from_id <- "Length2"
+       } else {
+         length_from_id <- strsplit(stimulusID, "_")[[1]][2]
+       }
+       
        new_user_stimulus_response$stimulusLength <- substr(length_from_id, 7, nchar(length_from_id))
       
        
@@ -92,14 +97,27 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        
        #evaluating response 
        new_user_stimulus_response$isCorrect <- 0
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 2 && new_user_stimulus_response$response=="12", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 3 && new_user_stimulus_response$response=="123", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 4 && new_user_stimulus_response$response=="1234", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 5 && new_user_stimulus_response$response=="12345", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 6 && new_user_stimulus_response$response=="123456", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 7 && new_user_stimulus_response$response=="1234567", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 8 && new_user_stimulus_response$response=="12345678", 1, new_user_stimulus_response$isCorrect )
-       new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 9 && new_user_stimulus_response$response=="123456789", 1, new_user_stimulus_response$isCorrect )
+       if (grepl("Forward", startScreenName)) {
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 2 && new_user_stimulus_response$response=="12", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 3 && new_user_stimulus_response$response=="123", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 4 && new_user_stimulus_response$response=="1234", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 5 && new_user_stimulus_response$response=="12345", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 6 && new_user_stimulus_response$response=="123456", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 7 && new_user_stimulus_response$response=="1234567", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 8 && new_user_stimulus_response$response=="12345678", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 9 && new_user_stimulus_response$response=="123456789", 1, new_user_stimulus_response$isCorrect )
+       }
+       
+       if (grepl("Backward", startScreenName)) {
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 2 && new_user_stimulus_response$response=="21", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 3 && new_user_stimulus_response$response=="321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 4 && new_user_stimulus_response$response=="4321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 5 && new_user_stimulus_response$response=="54321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 6 && new_user_stimulus_response$response=="654321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 7 && new_user_stimulus_response$response=="7654321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 8 && new_user_stimulus_response$response=="87654321", 1, new_user_stimulus_response$isCorrect )
+         new_user_stimulus_response$isCorrect <- ifelse(new_user_stimulus_response$stimulusLength == 9 && new_user_stimulus_response$response=="987654321", 1, new_user_stimulus_response$isCorrect )
+       }
        
        new_user_responses <- rbind(new_user_responses, new_user_stimulus_response)
        
@@ -156,30 +174,34 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
   
 }
 
-##--Get aggregates ----------------------------------------------##
+##--Get aggregates practice ----------------------------------------------##
 
 results_practice_forward <- harvest_scores(participants_uuids$V1, responsesPracticeForward, "practiceForward", screenviews_data, "RunTrialsPracticeForward", "delayForward")
 user_scores_practice_forward <- results_practice_forward$user_scores
 user_responses_practice_forward <- results_practice_forward$user_responses
+
+
+results_practice_backward <- harvest_scores(participants_uuids$V1, responsesPracticeBackward, "practiceBackward", screenviews_data, "RunTrialsBackwardPractice", "delayBackward")
+user_scores_practice_backward <- results_practice_backward$user_scores
+user_responses_practice_backward <- results_practice_backward$user_responses
+
+user_practice_scores <- merge(user_scores_practice_forward, user_scores_practice_backward)
+user_practice_scores$totalCorrect <- (user_practice_scores$practiceForwardCorrect + user_practice_scores$practiceBackwardCorrect)
+user_practice_scores$totalIncorrect <- (user_practice_scores$practiceForwardIncorrect + user_practice_scores$practiceBackwardIncorrect)
+write.csv(user_practice_scores, file=paste0(experiment_abr,".user_practice_scores.csv"))
+
+
+##--Get aggregates main rounds ----------------------------------------------##
 
 results_forward <- harvest_scores(participants_uuids$V1, responsesForward, "forward", screenviews_data, "RunTrialsForward", "instructionsBackward")
 user_scores_forward <- results_forward$user_scores
 user_responses_forward <- results_forward$user_responses
 
 
-
-results_practice_backward <- harvest_scores(participants_uuids$V1, responsesPracticeBackward, "practiceBackwrard", screenviews_data, "RunTrialsBackwardPractice", "delayBackward")
-user_scores_practice_backward <- results_practice_backward$user_scores
-user_responses_practice_backward <- results_practice_backward$user_responses
-
 results_backward <- harvest_scores(participants_uuids$V1, responsesBackward, "backward", screenviews_data, "RunTrialsBackward", "Admin")
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
 
-user_practice_scores <- merge(user_scores_practice_forward, user_scores_practice_backward)
-user_practice_scores$totalCorrect <- (user_practice_scores$forwardCorrect + user_practice_scores$backwardCorrect)
-user_practice_scores$totalIncorrect <- (user_practice_scores$forwardIncorrect + user_practice_scores$backwardIncorrect)
-write.csv(user_practice_scores, file=paste0(experiment_abr,".user_practice_scores.csv"))
 
 user_scores <- merge(user_scores_forward, user_scores_backward)
 user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCorrect)
