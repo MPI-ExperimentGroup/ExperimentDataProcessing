@@ -115,7 +115,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     screenviews_1user <- subset(screenviews_info, userId == user)
     
     test_duration <- get_test_duration(screenviews_1user, 
-                                       startScreenName, nchar(startScreenName), endScreenName)
+                                       startScreenName, nchar(startScreenName), endScreenName, TRUE)
     
     startTime <- test_duration[["startTime"]]
     endTime <- test_duration[["endTime"]]
@@ -126,31 +126,31 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     print("endTime")
     print(endTime)
     print("test duration")
-    print(paste0(as.character(testDuration), " minutes"))
+    print(paste0(as.character(testDuration), " sec"))
     
     #sanity checks  test duration 
     if (roundname == "main") {
       if (as.numeric(timeOut) == 0) { # no timeout
-        if (testDuration >= 20) {
-          print("Error sanity check no time out.")
+        if (testDuration > 1200) {
+          print("Error sanity check no time out detected but longer than 20 min (1200 sec)")
           print("Time out:")
-          print(as.numeric(timeOut))
+          print(timeOut)
           print("Test duration:")
           print(testDuration)
           stop()
         } else {
-          print("sanity check for no time out passed: test duration is less than 20 min")
+          print("sanity check for no time out passed: not ime out detected and test duration is less than 20 min (1200 sec)")
         }
       } else { # timeout
-        if (testDuration < 20) {
-          print("Error sanity check time out.")
+        if (testDuration < 1200) {
+          print("Error sanity check time out: time out detected but test duration less than 20 min (1200 sec)")
           print("Time out:")
-          print(as.numeric(timeOut))
+          print(timeOut)
           print("Test duration:")
           print(testDuration)
           stop()
         } else {
-          print("sanity check time out passed: test duration >= 20 min")
+          print("sanity check time out passed: time out detected and test duration > (2 0min) 1200 sec")
         }
       }
     }
@@ -158,7 +158,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     if (roundname == "main") {
       if ((as.numeric(n_correct) + as.numeric(n_incorrect) != nStimuli &&  (as.numeric(timeOut)==0)) ||
           (as.numeric(n_correct) + as.numeric(n_incorrect) > nStimuli &&  (as.numeric(timeOut)==1))) {
-        print("Sanity error: discrepance between the number of evaluated stimuli and the testnumber of stimuli")
+        print("Sanity error: discrepance between the number of evaluated stimuli and the number of test actual stimuli")
         print(" # of stimuli:")
         print(nStimuli)
         print("Evaluated (correct + incorrect):")
@@ -168,7 +168,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
         print("and incorrect:")
         print(n_incorrect)
         print("Time out:")
-        print(as.numeric(timeOut))
+        print(timeOut)
         stop()
         
       } else {
@@ -239,8 +239,8 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
       new_user_scores <- data.frame(user, n_correct, n_incorrect, n_overslaan, n_dontknow, timeOut, testDuration)
       names(new_user_scores) <- c("userId", 
                                   "Main Correct",
-                                  "Main Incorrect incl. 'ik weet het niet'",
-                                  "Overslaan and not answered",
+                                  "Main Incorrect (incl. 'ik weet het niet' and not answered 'overslaan')",
+                                  "Not answered 'overslaan'",
                                   "DoNotKnow",
                                   "timeOut",
                                   "Mian duration (min)")
