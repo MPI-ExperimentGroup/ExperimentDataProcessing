@@ -46,13 +46,21 @@ screenviews_columns <- c("userId", "screenName", "viewDate")
 screenviews <- get_embedded("screenviews", screenviews_columns, admin_url)
 screenviews_data <- unique(subset(screenviews[["currentData"]]))
 
+tagpairevents_columns <- c("userId", "tagDate", "eventTag", 
+                           "tagValue1", "tagValue2")
+tagpairevents <- get_embedded("tagpairevents", tagpairevents_columns, admin_url, 1000)
+tagpairevents_data <- unique(tagpairevents[["currentData"]])
+
 
 responsesPractice <- unique(subset(stimulusresponses_data, screenName=="stimuliScreenRavenPractice" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0))
 responsesMain <- unique(subset(stimulusresponses_data, screenName=="stimuliScreenRavenTest" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0))
 
+timeOutEvents <- subset(tagpairevents_data, tagValue1=="timeOut")
+scoreEvents <- subset(tagpairevents_data, eventTag=="summary" & tagValue1!="timeOut")
+
 ## help function 
 
-harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName, nStimuli) {
+harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName, nStimuli, timeOuts, frinexScores) {
   
   user_scores <- data.frame()
   user_responses <- data.frame()
@@ -71,46 +79,36 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     new_user_responses <- raw_user_responses
     new_user_responses$isCorrect <- ifelse(new_user_responses$isCorrect == TRUE, 1, 0)
     
-    # make overslaan N/A
-    new_user_responses$isCorrect <- ifelse(new_user_responses$response == "Overslaan", "NA", new_user_responses$isCorrect)
-   
-    
-    n_overslaan <- length(which(new_user_responses$isCorrect == "NA"))
-    n_correct <- length(which(new_user_responses$isCorrect == 1))
-    n_incorrect <- length(which(new_user_responses$isCorrect == 0))
-    n_dontknow <- length(which(new_user_responses$responses == "Ik weet het niet"))
-   
-    # sanity check on the overall amount of stimuli
-    if (as.numeric(n_correct) + as.numeric(n_incorrect) != nStimuli ) {
-      print("Sanity error: discrepance between the number of evaluated stimuli and the number of stimuli")
-      print(" # of stimuli:")
-      print(nStimuli)
-      print("Evaluated (correct + incorrect):")
-      print(as.numeric(n_correct) + as.numeric(n_incorrect))
-      print("Where correct:")
-      print(n_correct)
-      print("and incorrect:")
-      print(n_incorrect)
-      stop()
+  
+    # set overslaan evaluation, which is overwritten by some answer, to NA
+    if (roundname == "main") {
+      answered <- (subset(new_user_responses, response != "Overslaan"))$stimulusId
+      overslaanAndAnswered <- (subset(new_user_responses, response == "Overslaan" & stimulusId %in% answered))$stimulusId
+      new_user_responses$isCorrect <- ifelse(new_user_responses$response == "Overslaan" & new_user_responses$stimulusId %in% overslaanAndAnswered, "NA", new_user_responses$isCorrect)
     }
     
-    #sanity check for main on overall amount of incorrect
+    user_responses <- rbind(user_responses, new_user_responses)
+    
+    # scoring
+    n_correct <- length(which(new_user_responses$isCorrect == 1))
+    n_incorrect <- length(which(new_user_responses$isCorrect == 0))
+    n_overslaan <- length(which(new_user_responses$isCorrect == "NA"))
+    n_dontknow <- length(which(new_user_responses$response == "Ik weet het niet"))
+    
+    
+    
     if (roundname == "main") {
-      n_wronganswers <- length(which(new_user_responses$isCorrect == 0 && new_user_responses$responses != "Ik weet het niet"))
-      if (as.numeric(n_wronganswers) + as.numeric(n_dontknow) != as.numeric(n_incorrect) ) {
-        print("Sanity error for main test: discrepance between the number of incorrect stimuli and the sum of worng answers  + dontknows")
-        print(" # of incorrect:")
-        print(n_incorrect)
-        print("Worng answers + dont knows:")
-        print(as.numeric(n_wronganswers) + as.numeric(n_dontknow))
-        print("Where wrongs:")
-        print(n_wronganswers)
-        print("and dontknows:")
-        print(n_dontknow)
+      timeOut <- length(which(timeOuts$userId == user))
+      
+      # sanity check for time out
+      if (as.numeric(timeOut) != 0 && as.numeric(timeOut) !=1) {
+        print("Sanity error: the user appears more than once (ornegative amount of times ??? ) in the list of timeouts")
+        print("Users' time outs:")
+        print(as.numeric(timeOut))
         stop()
       }
     }
-    user_responses <- rbind(user_responses, new_user_responses)
+   
     
     
     # Get test duration for participant from screenviews
@@ -128,7 +126,107 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     print("endTime")
     print(endTime)
     print("test duration")
-    print(paste0(as.character(testDuration), " seconds"))
+    print(paste0(as.character(testDuration), " minutes"))
+    
+    #sanity checks  test duration 
+    if (roundname == "main") {
+      if (as.numeric(timeOut) == 0) { # no timeout
+        if (testDuration >= 20) {
+          print("Error sanity check no time out.")
+          print("Time out:")
+          print(as.numeric(timeOut))
+          print("Test duration:")
+          print(testDuration)
+          stop()
+        } else {
+          print("sanity check for no time out passed: test duration is less than 20 min")
+        }
+      } else { # timeout
+        if (testDuration < 20) {
+          print("Error sanity check time out.")
+          print("Time out:")
+          print(as.numeric(timeOut))
+          print("Test duration:")
+          print(testDuration)
+          stop()
+        } else {
+          print("sanity check time out passed: test duration >= 20 min")
+        }
+      }
+    }
+    # sanity check on the overall amount of stimuli
+    if (roundname == "main") {
+      if ((as.numeric(n_correct) + as.numeric(n_incorrect) != nStimuli &&  (as.numeric(timeOut)==0)) ||
+          (as.numeric(n_correct) + as.numeric(n_incorrect) > nStimuli &&  (as.numeric(timeOut)==1))) {
+        print("Sanity error: discrepance between the number of evaluated stimuli and the testnumber of stimuli")
+        print(" # of stimuli:")
+        print(nStimuli)
+        print("Evaluated (correct + incorrect):")
+        print(as.numeric(n_correct) + as.numeric(n_incorrect))
+        print("Where correct:")
+        print(n_correct)
+        print("and incorrect:")
+        print(n_incorrect)
+        print("Time out:")
+        print(as.numeric(timeOut))
+        stop()
+        
+      } else {
+        print("Sanity check on overall amount of evaluated stimuli passed")
+        print("Evaluated (correct + incorrect):")
+        print(as.numeric(n_correct) + as.numeric(n_incorrect))
+        print(" # of stimuli in the test:")
+        print(nStimuli)
+        print("Time out:")
+        print(as.numeric(timeOut))
+      }
+    }
+    
+    if (roundname == "practice") {
+      if (as.numeric(n_correct) + as.numeric(n_incorrect) != nStimuli)  {
+        print("Sanity error: discrepance between the number of evaluated stimuli and the testnumber of stimuli")
+        print(" # of stimuli:")
+        print(nStimuli)
+        print("Evaluated (correct + incorrect):")
+        print(as.numeric(n_correct) + as.numeric(n_incorrect))
+        print("Where correct:")
+        print(n_correct)
+        print("and incorrect:")
+        print(n_incorrect)
+        stop()
+        
+      } else {
+        print("Sanity check on overall amount of evaluated stimuli passed")
+        print("Evaluated (correct + incorrect):")
+        print(as.numeric(n_correct) + as.numeric(n_incorrect))
+        print(" # of stimuli in the test:")
+        print(nStimuli)
+      }
+    }
+    
+    
+    #sanity check for main on overall amount of incorrect
+    if (roundname == "main") {
+      n_wronganswers <- length(which(new_user_responses$isCorrect == 0 & new_user_responses$response != "Ik weet het niet"))
+      if (n_wronganswers + as.numeric(n_dontknow) != as.numeric(n_incorrect) ) {
+        print("Sanity error for main test: discrepance between the number of incorrect stimuli and the sum of worng answers  + dontknows")
+        print(" # of incorrect:")
+        print(n_incorrect)
+        print("Worng answers + dontknows:")
+        print(n_wronganswers + as.numeric(n_dontknow))
+        print("Where wrongs:")
+        print(n_wronganswers)
+        print("and dontknows:")
+        print(n_dontknow)
+        stop()
+      } else {
+        print("Sanity check on overall amount of incorrect passed")
+        print(" # of incorrect:")
+        print(n_incorrect)
+        print("Worng answers + dontknows:")
+        print(as.numeric(n_wronganswers) + as.numeric(n_dontknow))
+      }
+    }
     
     if (roundname == "practice") {
       new_user_scores <- data.frame(user, n_correct, n_incorrect, testDuration)
@@ -138,12 +236,13 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
                                   "Practice duration (min)")
        
     } else {
-      new_user_scores <- data.frame(user, n_correct, n_incorrect, n_overslaan, n_dontknow, testDuration)
+      new_user_scores <- data.frame(user, n_correct, n_incorrect, n_overslaan, n_dontknow, timeOut, testDuration)
       names(new_user_scores) <- c("userId", 
                                   "Main Correct",
                                   "Main Incorrect incl. 'ik weet het niet'",
-                                  "Overslaan",
+                                  "Overslaan and not answered",
                                   "DoNotKnow",
+                                  "timeOut",
                                   "Mian duration (min)")
       
     }
@@ -160,7 +259,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
 ##--Get aggregates practice ----------------------------------------------##
 
 
-results_practice <- harvest_scores(participants_uuids$V1, responsesPractice, "practice", screenviews_data, "stimuliScreenRavenPractice", "stimuliScreenRavenTest", 6)
+results_practice <- harvest_scores(participants_uuids$V1, responsesPractice, "practice", screenviews_data, "stimuliScreenRavenPractice", "stimuliScreenRavenTest", 6, timeOutEvents, scoreEvents)
 user_scores_practice <- results_practice$user_scores
 user_responses_practice <- results_practice$user_responses
 
@@ -172,7 +271,7 @@ if (nrow(participants_uuids) != nrow(user_scores_practice) ) {
 
 ##--Get aggregates main ----------------------------------------------##
 
-results <- harvest_scores(participants_uuids$V1, responsesMain, "main", screenviews_data, "stimuliScreenRavenTest", "admin", 36)
+results <- harvest_scores(participants_uuids$V1, responsesMain, "main", screenviews_data, "stimuliScreenRavenTest", "admin", 36, timeOutEvents, scoreEvents)
 user_scores <- results$user_scores
 user_responses <- results$user_responses
 
