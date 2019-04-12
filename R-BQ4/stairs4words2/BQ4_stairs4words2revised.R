@@ -17,8 +17,7 @@ admin_url <- paste(server_url, "/", experiment_abr, "-admin", sep = "")
 
 # These variables have different values for the Dutch and English versions of
 # Stairs4words
-nonWordValue <- "-1"
-column_labels_row_label <- "Label"
+nonWordValue <- "0"
 start_screenName <- "stimuliScreenV"
 
 ##--Authentication------------------------------------------------------------##
@@ -59,6 +58,7 @@ stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "is
 stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
 stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]])) 
 stimulusresponses_data$response <- str_replace_all(stimulusresponses_data$response, "&#44;", ",")
+stimulusresponses_data$isCorrect <- ifelse(stimulusresponses_data$isCorrect == TRUE, 1, 0)
 
 ##--Pre-process fast track and finetuning-------------------------------------##
 
@@ -85,6 +85,8 @@ fast_track$NonwordsFrequencyAtThisPoint <- lapply(strsplit(fast_track$tagValue2,
 
 fast_track$visitingNumber <- NA
 
+fast_track$IsUserCorrect <- ifelse(fast_track$IsUserCorrect == "true", 1, 0)
+
 
 
 fine_tuning <- subset(tagpairevents_data, eventTag == "fine_tuning"  &   tagValue2 != " ; ; ; ; ; ;"  & tagValue1 != "row000000")
@@ -105,6 +107,8 @@ fine_tuning$NonwordsFrequencyAtThisPoint <- NA
 
 fine_tuning$visitingNumber <- lapply(strsplit(fine_tuning$tagValue2,";"), 
                                function(x) x[6])
+
+fine_tuning$IsUserCorrect <- ifelse(fine_tuning$IsUserCorrect == "true", 1, 0)
 
 
 rating_buttons <- subset(tagpairevents_data, eventTag == "RatingButton")
@@ -154,18 +158,18 @@ for (rawUUID in participants_uuids$V1)  {
                                  screenName == round_screenName)
     # sanity check: two last fast track answers must be wrong and thirdfrom the end should be correct
     lastFastT <- nrow(fast_track_1user)
-    if (fast_track_1user[lastFastT,]$IsUserCorrect != "false") {
+    if (fast_track_1user[lastFastT,]$IsUserCorrect != 0) {
       print("Sanity error: the last answer of the fast track must be 'false' but it is:")
       print(fast_track_1user[lastFastT,]$IsUserCorrect)
       stop()
     }
-    if (fast_track_1user[lastFastT-1,]$IsUserCorrect != "false") {
+    if (fast_track_1user[lastFastT-1,]$IsUserCorrect != 0) {
       print("Sanity error: the pre-last answer of the fast track must be 'false' but it is:")
       print(fast_track_1user[lastFastT-1,]$IsUserCorrect)
       stop()
     }
     if (lastFastT >= 3) {
-      if (fast_track_1user[lastFastT-2,]$IsUserCorrect != "true") {
+      if (fast_track_1user[lastFastT-2,]$IsUserCorrect != 1) {
         print("Sanity error: the pre-pre-last answer of the fast track must be 'true' but it is:")
         print(fast_track_1user[lastFastT-2,]$IsUserCorrect)
         print('Band Number:')
@@ -188,7 +192,7 @@ for (rawUUID in participants_uuids$V1)  {
     fineTuningFirstBand <- fine_tuning_1user[1,]$BandNumber
     if (fineTuningFirstBand > 0 ) { # not a non-word
       if (fastTrackLastBand > 1) {
-        if (fastTrackLastBand < 54 || (fastTrackLastBand == 54 && fast_track_1user[lastFastT,]$IsUserCorrect == FALSE)) {
+        if (fastTrackLastBand < 54 || (fastTrackLastBand == 54 && fast_track_1user[lastFastT,]$IsUserCorrect == 0)) {
           if (as.numeric(fastTrackLastBand) - 1 != fineTuningFirstBand) {
             print("Experiment implementation flaw: the first band in fine tuning is not equal to the last band of fast track - 1")
             print(fineTuningFirstBand)
@@ -227,7 +231,6 @@ for (rawUUID in participants_uuids$V1)  {
     # Concatenate fast track and fine tuning data
     item_data_1user <- rbind(fast_track_1user, fine_tuning_1user)
     item_data_1user <- item_data_1user[order(item_data_1user[,"timestamp"]), ]
-    item_data_1user$IsUserCorrect <- ifelse(item_data_1user$IsUserCorrect == "true", TRUE, FALSE)
     
  
     
@@ -282,6 +285,158 @@ for (rawUUID in participants_uuids$V1)  {
       }
     }
     
+    # Experiment implementation check: correctness of the fine tuning flow
+    user_summary <- subset(tagpairevents_data, userId == user & 
+                             eventTag == "user_summary" & 
+                             tagValue1 == "row000001" & screenName == round_screenName)
+    
+    user_summary <- lapply(strsplit(user_summary$tagValue2,";"), 
+                              function(x) x)
+    
+    user_score <- user_summary[[1]][1]
+    BestFastTrack	<- user_summary[[1]][2]
+    Cycle2oscillation	<- ifelse(user_summary[[1]][3]  == "true", 1, 0)
+    EnoughFineTuningStimuli <- ifelse(user_summary[[1]][4]== "true", 1, 0)
+    Champion <- ifelse(user_summary[[1]][5]== "true", 1, 0)
+    Loser <- ifelse(user_summary[[1]][5]== "true", 1, 0)
+   
+    if (fastTrackLastBand == 1) {
+      band <- c(1)
+    } else {
+      if (fastTrackLastBand == 54 && fast_track_1user[lastFastT,]$IsUserCorrect == 1) {
+        band <- c(54)
+      } else {
+        band <- c(as.numeric(fastTrackLastBand) -1)
+      }
+    }
+    
+    if (band[1] != BestFastTrack) {
+      print("Alert! The R-calculated and the Frinex calculated best fast track band differs:") 
+      print(band[1])
+      print(BestFastTrack)
+      stop()
+    }
+    
+    looserAttempt <- 0
+    champAttempt <- 0
+    i_band <- 1
+    i_quad <- 1
+    looser <- 0
+    champion <- 0
+    loop <- 0
+    
+    for (i in 1:nrow(fine_tuning_1user)){
+      if (fine_tuning_1user[i,]$BandNumber > 0) {
+        if (fine_tuning_1user[i,]$BandNumber != band[i_band]) {
+          print("Alert for the implementation of the experiment: discrepance between the Frinex-detected and the R-calculated band, resp:")
+          print(fine_tuning_1user[i,]$BandNumber)
+          print(band[i_band])
+          print("In row")
+          print(i)
+          stop()
+        }
+      }
+      if (fine_tuning_1user[i,]$IsUserCorrect == 1) {
+        if (i_quad == 4) { # the quadruple is finished correctly
+          if (band[i_band] == 54)  { # champion candidate
+            if (champAttempt == 1) { # champion, we should stop here
+              if (i < nrow(fine_tuning_1user)) {
+                print("Alert for the implementation of the experiment: champion is detected but the procedure does not stop")
+                stop()
+              } else {
+                champion <- 1
+              }
+            } else {
+              champAttempt <- 1 # one more session on the last band
+              band <- c(band, 54)
+              i_band<-  i_band + 1
+              i_quad <- 1
+            }
+          } else { # one band uppe 
+            band <- c(band, band[i_band]+1)
+            i_band<-  i_band + 1
+            i_quad <- 1
+            champAttempt <- 0
+            looserAttempt <- 0
+          }
+        } else { # not all the quadruple is checked
+          i_quad <- i_quad + 1
+        }
+      } else { # incorrect answer
+        # here we first must detect if there is a 2-loop of bands
+        
+        if (i_band>4 && band[i_band] == band[i_band-2] && band[i_band] == band[i_band-4] && band[i_band-1] == band[i_band-3])  {
+          if (i < nrow(fine_tuning_1user)) {
+            print("Alert for the implementation of the experiment: loopis detected but the procedure does not stop")
+            stop()
+          } else {
+            loop <- 1
+          }
+        } else {
+          if (band[i_band] == 1) { # looser candidate
+            if (looserAttempt == 1) {
+              if (i < nrow(fine_tuning_1user)) {
+                print("Error in the implementation of the experiment: looser is detected but the procedure does not stop")
+                stop()
+              } else {
+                looser <- 1
+              }
+            } else {
+              looserAttempt <- 1 # onemore session on the first band 
+              band <- c(band, 1)
+              i_band<-  i_band + 1
+              i_quad <- 1
+            }
+            
+          } else {
+            band <- c(band, band[i_band]-1)
+            i_band<-  i_band + 1
+            i_quad <- 1
+            looserAttempt <- 0
+            champAttempt <- 0
+          }
+        }
+      }
+    }
+    
+    if (looser != Loser) {
+      print("Procedure omplementation alert: the R-calculated and Frinex detected looser-flags differ:")
+      print(looser)
+      print(Loser)
+      stop()
+    }
+    if (champion != Champion) {
+      print("Procedure omplementation alert: the R-calculated and Frinex detected champion-flags differ:")
+      print(champion)
+      print(Champion)
+      stop()
+    }
+  
+   if (loop != Cycle2oscillation) {
+    print("Procedure omplementation alert: the R-calculated and Frinex detected oscillation-flags differ:")
+    print(loop)
+    print(Cycle2oscillation)
+    stop()
+   } else {
+     if (loop == 1) {
+       score <- min(band[i_band], band[i_band-1])
+       if (score != user_score) {
+         print("Procedure omplementation alert: the R-calculated and Frinex detected score differ:")
+         print(score)
+         print(user_score)
+         stop()
+       }
+     }
+  }
+    
+    # check EnoughFineTuningStimuli
+    if (looser == 0 && champion == 0 && loop == 0) {
+      if (EnoughFineTuningStimuli == 1) {
+        print("Procedure omplementation alert, R-detection of looser, champ and loop are all FALSE")
+        print("Which contradicts the TRUE detection of the EnoughFineTuningStimuli by FRINEX")
+        stop()
+      }
+    }
     
     # Add start of experiment so duration of first item can be calculated
     combined_1_user$tagDate.y[1] <- fast_track_start
@@ -300,12 +455,9 @@ for (rawUUID in participants_uuids$V1)  {
   # Round duration to miliseconds
   combined_2_rounds$duration <- round(combined_2_rounds$duration, 3)
   
-  # Remove row consisting of column labels for fast track
-  combined_2_rounds <- subset(combined_2_rounds, label != column_labels_row_label)
   
   # Change values for IsUserCorrect and UserAnswer from true/false to 1/0
-  combined_2_rounds$UserAnswer <- ifelse(combined_2_rounds$UserAnswer == "true", 1, 0)
-  combined_2_rounds$IsUserCorrect <- ifelse(combined_2_rounds$IsUserCorrect == "true", 1, 0)
+  combined_2_rounds$UserAnswer <- ifelse(combined_2_rounds$UserAnswer == "JA, ik ken dit woord", 1, 0)
   
   
   # Select only required columns
@@ -336,22 +488,20 @@ for (rawUUID in participants_uuids$V1)  {
   
   print(user)
   
-  user_summary <- subset(tagpairevents_data, userId == user & 
-                           eventTag == "user_summary" & 
-                           tagValue1 == "row000001")
   
-  ## Skip users that have no summary or that have a summary for only one round
-  if (!nrow(user_summary) || nrow(user_summary) == 1){
-    next
-  }
-  user_summary_r1 <- user_summary[1,]
-  user_summary_r2 <- user_summary[2,]
+  
+  user_summary_r1 <- subset(tagpairevents_data, userId == user & 
+                              eventTag == "user_summary" & 
+                              tagValue1 == "row000001" & screenName =="stimuliScreenV1")
+  user_summary_r2 <- subset(tagpairevents_data, userId == user & 
+                              eventTag == "user_summary" & 
+                              tagValue1 == "row000001" & screenName =="stimuliScreenV2")
   
   user_summary_r1 <- lapply(strsplit(user_summary_r1$tagValue2,";"), 
                             function(x) x)
   user_summary_r2 <- lapply(strsplit(user_summary_r2$tagValue2,";"), 
                             function(x) x)
-  user_score_r1 <- user_summary_r1[[1]][1]
+  
   user_score_r1 <- user_summary_r1[[1]][1]
   BestFastTrack_r1	<- user_summary_r1[[1]][2]
   Cycle2oscillation_r1	<- user_summary_r1[[1]][3]
@@ -359,7 +509,6 @@ for (rawUUID in participants_uuids$V1)  {
   Champion_r1 <- user_summary_r1[[1]][5]
   Loser_r1 <- user_summary_r1[[1]][5]
                   
-  user_score_r2 <- user_summary_r2[[1]][1]
   user_score_r2 <- user_summary_r2[[1]][1]
   BestFastTrack_r2	<- user_summary_r2[[1]][2]
   Cycle2oscillation_r2	<- user_summary_r2[[1]][3]
