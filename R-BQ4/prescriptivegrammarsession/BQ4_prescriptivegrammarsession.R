@@ -55,6 +55,7 @@ participant_events <- left_join(tagpairevents[["currentData"]],
                                 by = "userId")
 
 
+
 ###--Process responses and aggregate scores----------------------------------###
 
 user_scores <- data.frame()
@@ -64,7 +65,9 @@ user_responses <- data.frame()
 
 eventsMainTest = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & !grepl("Practice", tagValue1) & !(tagValue1=="description"))
 
-#eventsPractice = subset(tagpairevents_data, eventTag != "summary" & eventTag !="DataSubmission" & (grepl("Practice", tagValue1) || grepl("tag_practice", tagValue2)))
+stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
+stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
+stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]], !grepl("Practice", stimulusId))) 
 
 
 
@@ -78,13 +81,14 @@ for (rawUUID in participants_uuids$V1)  {
     
     print(nrow(events))
     
+    stimulusresponses_user <- subset(stimulusresponses_data, userId==user) 
+    
     
     # Process subjects with complete data
-    if (nrow(events) > 119){
+    if (nrow(events) != 119){
       
       new_user_response <- events
       
-     
       # add isUserCorrect column
       new_user_response <- new_user_response %>%
         mutate(eventTag = ifelse(eventTag %in% c("Correct", "Incorrect"), 
@@ -119,7 +123,29 @@ for (rawUUID in participants_uuids$V1)  {
       
       names(new_user_response)[names(new_user_response) == 'StimulusButton'] <- 'userResponse'
       
+      for (stimulusID in stimulusresponses_user$stimulusId) {
+        eventsStimulus <- subset(new_user_response, tagValue1 == stimulusID) 
+        if (nrow(eventsStimulus) != 1) {
+          print(stimulusID)
+          print("Sanity error: stimulus has more than 1 response (or no responses at all)")
+          print(nrow(eventsStimulus))
+          stop()
+        }
+        responsesStimulus <- subset(stimulusresponses_user, stimulusId == stimulusID )
+        if (eventsStimulus[1,]$userResponse != responsesStimulus[1,]$response) {
+          print(stimulusID)
+          print("Sanity error: user reaction reports differ in tagpair events and in stimulus response API request:")
+          print(eventsStimulus[1,]$userResponse)
+          print(responsesStimulus[1,]$response)
+          stop()
+        }
+      }
+      
       user_responses <- rbind(user_responses, new_user_response)    
+    } else {
+      print("Sanity check error: the amount of rows for this uesr does not coinside with the amount of stimuli (119):")
+      print(nrow(events))
+      stop()
     }
     
     # Scoring explanation (coding is different from auteurs- and spellingtest)
@@ -158,6 +184,49 @@ for (rawUUID in participants_uuids$V1)  {
     #print("Total:")
     #print(TP + FP + TN + FN)
     
+    # sanity checks
+    TPcheck <- length(which(stimulusresponses_user$response == "Correct" & 
+                              stimulusresponses_user$isCorrect == TRUE))
+    if (TP != TPcheck) {
+      print("Sanity error: # of true positives obtained by tag-pair events and by stimulus-responses requests differ:")
+      print(TP)
+      print(TPcheck)
+      stop()
+    }
+    FPcheck <- length(which(stimulusresponses_user$response == "Correct" & 
+                              stimulusresponses_user$isCorrect == FALSE))
+    if (FP != FPcheck) {
+      print("Sanity error: # of false positives obtained by tag-pair events and by stimulus-responses requests differ:")
+      print(FP)
+      print(FPcheck)
+      stop()
+    }
+    TNcheck <- length(which(stimulusresponses_user$response == "Incorrect" & 
+                              stimulusresponses_user$isCorrect == TRUE))
+    if (TN != TNcheck) {
+      print("Sanity error: # of true negatives obtained by tag-pair events and by stimulus-responses requests differ:")
+      print(TN)
+      print(TNcheck)
+      stop()
+    }
+    FNcheck <- length(which(stimulusresponses_user$response == "Incorrect" & 
+                              stimulusresponses_user$isCorrect == FALSE))
+    if (FN != FNcheck) {
+      print("Sanity error: # of false negatives obtained by tag-pair events and by stimulus-responses requests differ:")
+      print(FN)
+      print(FNcheck)
+      stop()
+    }
+    
+    summary_user <- subset(tagpairevents_data, userId == user & grepl("score:", tagValue2))
+    score <- lapply(strsplit(summary_user$tagValue2,":"), 
+                    function(x) trimws(x[2]))
+    if (score != as.numeric(TP) + as.numeric(TN) ) {
+      print("Sanity error: # frinex-obtainesscore  differfrom the sumof true-positive and true-negative answers:")
+      print(score)
+      print(as.numeric(TP) + as.numeric(TN))
+      stop()
+    }
     
     # Get test duration for participant from screenviews
     screenviews_1user <- subset(screenviews_data, 
