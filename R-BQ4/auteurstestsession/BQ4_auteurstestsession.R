@@ -70,6 +70,10 @@ participant_events <- left_join(tagpairevents[["currentData"]],
                                 participants_data, 
                                 by = "userId")
 
+stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
+stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
+stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]])) 
+
 
 user_scores <- data.frame()
 user_responses <- data.frame()
@@ -85,9 +89,6 @@ for (rawUUID in participants_uuids$V1)  {
     
     print(nrow(events))
     
-    if (nrow(events) == 0){
-      next
-    }
     
     submitDate <- subset(participants_data, userId == user)$submitDate
     userName <- subset(participants_data, userId == user)$workerId
@@ -139,6 +140,40 @@ for (rawUUID in participants_uuids$V1)  {
     new_user_response$isUserCorrect <- ifelse(new_user_response$isUserCorrect == "correct", 1, 0)
     new_user_response$isAuthor <- ifelse(new_user_response$isAuthor == "author", 1, 0)
     
+    # sanity check
+    stimulusresponses_user <- subset(stimulusresponses_data, userId==user)
+    for (stimulusID  in new_user_response$stimulusId) {
+      respRow <- subset(new_user_response, stimulusId==stimulusID)
+      if (nrow(respRow) != 1) {
+      print("Sanity error: more than 1 rows (orno rows at all) in posprocessed tag-pair events table, for stimulus")
+      print(stimulusId)
+      stop()
+    }
+      respRowCheck <- subset(stimulusresponses_user, startsWith(stimulusId, stimulusID))
+      if (nrow(respRowCheck) != 1) {
+        print("Sanity error: more than 1 rows (orno rows at all) in stimulus responses json, for stimulus")
+        print(stimulusId)
+        stop()
+      }
+      
+      if ((respRow[1,]$isUserCorrect == 1 && respRowCheck[1,]$isCorrect !=TRUE) || (respRow[1,]$isUserCorrect == 0 && respRowCheck[1,]$isCorrect !=FALSE)){
+        print("Sanity error:discrepance between response evaluation in tag-pair event R-postprocession and in the frinex-generated response set")
+        print(stimulusId)
+        print(respRow[1,]$isUserCorrect)
+        print(respRowCheck[1,]$isCorrect)
+        stop()
+      }
+     
+      if ((respRow[1,]$isAuthor == 1 && !endsWith(respRowCheck[1,]$stimulusId,"author")) || (respRow[1,]$isAuthor == 0 && !endsWith(respRowCheck[1,]$stimulusId,"non"))){
+        print("Sanity error :discrepance between stimulus author-nonauthor description in tag-pair event R-postprocession and in the frinex-generated response set")
+        print(stimulusId)
+        print(respRow[1,]$isAuthor)
+        print(respRowCheck[1,]$stimulusId)
+        stop()
+      }
+    }
+    
+    
     user_responses <- rbind(user_responses, new_user_response)
     
     # Scoring explanation (coding is counterintuitive)
@@ -173,6 +208,37 @@ for (rawUUID in participants_uuids$V1)  {
     #print(FN)
     #print("Total:")
     #print(TP + FP + TN + FN)
+    
+    # sanity check 
+    score_events <- subset(tagpairevents_data,  userId == user & startsWith(tagValue2, "totalScore:"))
+    scoreFirnex <- substring(score_events[1,]$tagValue2,  13, nchar(score_events[1,]$tagValue2))
+    
+    error_events <- subset(tagpairevents_data,  userId == user & startsWith(tagValue2, "totalErrors:"))
+    errorsFrinex <- substring(error_events[1,]$tagValue2,  14, nchar(error_events[1,]$tagValue2))
+    
+    if (as.numeric(scoreFirnex) + as.numeric(errorsFrinex) != nrow(new_user_response)) {
+      print("Sanity error: the sum  of scores and errors given by frinex, differs from the overall amount of stimuli")
+      print(scoreFrinex)
+      print(errorsFrinex)
+      print(nrow(new_user_response))
+      stop()
+    }
+    
+    if (as.numeric(TP) + as.numeric(TN) != as.numeric(scoreFirnex) ) {
+      print("Sanity error: the sum  of true positives and negatives computed by R differs from the score computed by Frinex:")
+      print(as.numeric(TP))
+      print(as.numeric(TN))
+      print(scoreFrinex)
+      stop()
+    }
+    
+    if (as.numeric(FP) + as.numeric(FN) != as.numeric(errorsFrinex) ) {
+      print("Sanity error: the sum  of false positives and negatives computed by R differs from the #erros computed by Frinex:")
+      print(as.numeric(FP))
+      print(as.numeric(FN))
+      print(errorsFrinex)
+      stop()
+    }
 
     
     # Get test duration for participant from screenviews
