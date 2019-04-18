@@ -16,6 +16,11 @@ n_nots <- 42
 # read stimuli from the csv file
 stimuli_csv <- read.table("Auteurstest_definitief.csv",  header=TRUE, sep=";")
 
+# noncrtical: the list of the authors for which the internal stimuli id's are inconsistent (non-visible to the participant and theresearcher)
+stimuli_inconsistent_ids <-  c("George_Eliot", "Miguel_de_Cervantes", "John_le_Carré")
+
+
+
 
 
 ##--Configuration-------------------------------------------------------------##
@@ -94,7 +99,7 @@ for (rawUUID in participants_uuids$V1)  {
     stimulusresponses_user_raw <- subset(stimulusresponses_data, userId==user)
     stimulusIDs <- unique(subset(stimulusresponses_user_raw, select=c(stimulusId)))
     
-    n_auth_check <- length(which(endsWith(stimulusIDs$stimulusId, "author")))
+    n_auth_check <- length(which(endsWith(stimulusIDs$stimulusId, "_author")))
     
     if (n_auth_check != n_authors) {
       print("Sanity error: number of author-marked stimuli differs of the number of authors given in the specification")
@@ -102,7 +107,8 @@ for (rawUUID in participants_uuids$V1)  {
       print(n_authors)
       stop()
     }
-    n_not_check <- length(which(endsWith(stimulusIDs$stimulusId, "not")))
+    
+    n_not_check <- length(which(endsWith(stimulusIDs$stimulusId, "_not")))
     if (n_not_check != n_nots) {
       print("Sanity error: number of author-marked stimuli differs of the number of not-s given in the specification")
       print(n_not_check)
@@ -110,14 +116,24 @@ for (rawUUID in participants_uuids$V1)  {
       stop()
     }
     
-    # checking coding of the stimuli 
-    for (naam in stimulus_csv$Naam) {
-      current_stimulus <- subset(stimulusIDs, grepl(naam, stimulusId))
-      if (nrow(current_stimulus) != 1) {
-        print("Sanity error: there is an ambigous encoding for the stimuli corresponding to the author")
-        print(naam)
-        stop()
+    # checking coding of the stimuli  
+    for (i in 1:nrow(stimuli_csv)) {
+      
+      if (!(stimuli_csv[i,]$Naam %in% stimuli_inconsistent_ids)) {
+        current_stimulus <- subset(stimulusIDs, grepl(stimuli_csv[i,]$Naam, gsub("\\.", "", stimulusId)))
+        if (nrow(current_stimulus) != 1) {
+          print("Sanity error: there is an ambigous encoding for the stimuli corresponding to the author")
+          print(stimuli_csv[i,]$Naam)
+          stop()
+        }
+        if((endsWith(current_stimulus[1,], "_author") &&  stimuli_csv[i,]$Code == "NON") ||  
+           (endsWith(current_stimulus[1,], "_not") &&  stimuli_csv[i,]$Code == "AUT")) {
+          print("Sanity error: incorect encoding of the stimuli corresponding to the author")
+          print(stimuli_csv[i,]$Naam)
+          stop()
+        }
       }
+      
     }
     
     
@@ -167,7 +183,7 @@ for (rawUUID in participants_uuids$V1)  {
       stop()
     }
     
-   stimulus_responses_user$isAuthor <- ifelse(endsWith(stimulus_responses_user$stimulusId, "author"), 1, 0)
+   stimulus_responses_user$isAuthor <- ifelse(endsWith(stimulus_responses_user$stimulusId, "_author"), 1, 0)
    stimulus_responses_user$response <- ifelse(stimulus_responses_user$response == "true", 1, 0)
    stimulus_responses_user$isCorrect <- ifelse(stimulus_responses_user$isCorrect == TRUE, 1, 0)
    
@@ -355,7 +371,8 @@ for (rawUUID in participants_uuids$V1)  {
    stop()
  }
 
- 
+write.csv(users_multiple_submission, file=paste0(experiment_abr,".multiple_submissions.csv"))
+users_multiple_submission
 
 # Write scores to file
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
