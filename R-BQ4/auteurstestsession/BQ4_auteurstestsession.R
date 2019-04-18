@@ -8,8 +8,10 @@ library(stringr)
 source("../shared/BQ4_supportFunctions.R")
 
 ## parameters (specification) --------------------------------------------------####
-n_stimuli <-  132
 
+n_stimuli <-  132
+n_authors <- 90
+n_nots <- 42
 
 
 ##--Configuration-------------------------------------------------------------##
@@ -70,7 +72,7 @@ participant_events <- left_join(tagpairevents[["currentData"]],
 
 stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
 stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
-stimulusresponses_data <- subset(stimulusresponses[["currentData"]])
+stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]]))
 
 
 user_scores <- data.frame()
@@ -79,20 +81,40 @@ user_responses <- data.frame()
 users_multiple_submission <- data.frame()
 stimulusIDs <- data.frame()
 
+i <- 0
 for (rawUUID in participants_uuids$V1)  {
- 
-    user <- paste0("uuid-", rawUUID)
+  
+    i<- i+1
     
-    stimulusresponses_user_raw <- unique(subset(stimulusresponses_data, userId==user))
+    user <- paste0("uuid-", rawUUID)
+    print(user)
+    
+    stimulusresponses_user_raw <- subset(stimulusresponses_data, userId==user)
     
     if(nrow(stimulusIDs) != n_stimuli) {
       stimulusIDs <- unique(subset(stimulusresponses_user_raw, select=c(stimulusId)))
+      n_auth_check <- length(which(endsWith(stimulusIDs$stimulusId, "author")))
+      if (n_auth_check != n_authors) {
+        print("Sanity error: number of author-marked stimuli differs of the number of authros given in the specification")
+        print( n_auth_check)
+        print(n_authors)
+        stop()
+      }
+      n_not_check <- length(which(endsWith(stimulusIDs$stimulusId, "not")))
+      if (n_not_check != n_nots) {
+        print("Sanity error: number of author-marked stimuli differs of the number of not-s given in the specification")
+        print(n_not_check)
+        print(n_nots)
+        stop()
+      }
+      
     }
     
-    print(user)
     
     
-    " submit date is the first scoring attempt time tag"
+    # on the multiple submission the last attempt is taken as the end result
+    # the staring time is the time stamp of the last apperanace of the stimulus screen
+    # the ending time  is the timestamp of the last scoring attempt
     score_events <- subset(tagpairevents_data,  userId == user & startsWith(tagValue2, "totalScore:"))
     score_events <- score_events[order(score_events[,"tagDate"]), ]
     
@@ -132,7 +154,7 @@ for (rawUUID in participants_uuids$V1)  {
    
     
     if (nrow(stimulus_responses_user) != n_stimuli) {
-      print("Something went terribly wrong: the amount of rows of the post-processed table in the R-file still differs from the # of stimuli")
+      print("Something went terribly wrong: the amount of rows of the post-processed table in the R-script still differs from the # of stimuli")
       print(nrow(stimulus_responses_user))
       print(n_stimuli)
       stop()
@@ -246,7 +268,21 @@ for (rawUUID in participants_uuids$V1)  {
       stop()
     }
     
-   
+    if (as.numeric(TP) + as.numeric(FN) != as.numeric(n_authors) ) {
+      print("Sanity error: the sum  of true positives and false negatives computed by R differs from the total amount of authors")
+      print(TP)
+      print(TN)
+      print(scoreFrinex)
+      stop()
+    }
+    
+    if (as.numeric(TN) + as.numeric(FP) != as.numeric(n_nots) ) {
+      print("Sanity error: the sum  of false positives and true negatives computed by R differs from the total amount of notss")
+      print(TN)
+      print(FP)
+      print(scoreFrinex)
+      stop()
+    }
     
     if (as.numeric(TP) + as.numeric(TN) != as.numeric(n_correct) ) {
       print("Sanity error: the sum  of true positives and negatives computed by R differs from the total amount of correct:")
@@ -291,19 +327,28 @@ for (rawUUID in participants_uuids$V1)  {
     print("test duration")
     print(paste0(as.character(testDuration), " min"))
     
-    new_user_scores <- data.frame(user, userName, TP, FP, TN, FN, testDuration, startTime, endTime)
-    names(new_user_scores) <- c("userId", "userName",
+    new_user_scores <- data.frame(user, TP, FP, TN, FN, testDuration, startTime, endTime)
+    names(new_user_scores) <- c("userId", 
                           "Hits (True Positives)",
                             "False Alarm (False Positives)",
                             "Correct Rejection (True Negative)",
                             "Missing (False Negative)",
-                            "Test Duration min,
-                             Start time,
-                             End time"
+                            "Test Duration min",
+                             "Start time",
+                             "End time"
                             ) 
     user_scores <- rbind(user_scores, new_user_scores)
  
 } 
+
+ if  (nrow(user_scores) != nrow(participants_uuids)) {
+   print("sanity-check error: number of the participants for which the scores are counted, differs form the amount of the given participants")
+   print(nrow(user_scores))
+   print(nrow(participants_uuids))
+   stop()
+ }
+
+ 
 
 # Write scores to file
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
