@@ -13,6 +13,10 @@ n_stimuli <-  132
 n_authors <- 90
 n_nots <- 42
 
+# read stimuli from the csv file
+stimuli_csv <- read.table("Auteurstest_definitief.csv",  header=TRUE, sep=";")
+
+
 
 ##--Configuration-------------------------------------------------------------##
 
@@ -79,37 +83,42 @@ user_scores <- data.frame()
 user_responses <- data.frame()
 
 users_multiple_submission <- data.frame()
-stimulusIDs <- data.frame()
 
-i <- 0
+
 for (rawUUID in participants_uuids$V1)  {
   
-    i<- i+1
-    
+   
     user <- paste0("uuid-", rawUUID)
     print(user)
     
     stimulusresponses_user_raw <- subset(stimulusresponses_data, userId==user)
+    stimulusIDs <- unique(subset(stimulusresponses_user_raw, select=c(stimulusId)))
     
-    if(nrow(stimulusIDs) != n_stimuli) {
-      stimulusIDs <- unique(subset(stimulusresponses_user_raw, select=c(stimulusId)))
-      n_auth_check <- length(which(endsWith(stimulusIDs$stimulusId, "author")))
-      if (n_auth_check != n_authors) {
-        print("Sanity error: number of author-marked stimuli differs of the number of authros given in the specification")
-        print( n_auth_check)
-        print(n_authors)
-        stop()
-      }
-      n_not_check <- length(which(endsWith(stimulusIDs$stimulusId, "not")))
-      if (n_not_check != n_nots) {
-        print("Sanity error: number of author-marked stimuli differs of the number of not-s given in the specification")
-        print(n_not_check)
-        print(n_nots)
-        stop()
-      }
-      
+    n_auth_check <- length(which(endsWith(stimulusIDs$stimulusId, "author")))
+    
+    if (n_auth_check != n_authors) {
+      print("Sanity error: number of author-marked stimuli differs of the number of authors given in the specification")
+      print( n_auth_check)
+      print(n_authors)
+      stop()
+    }
+    n_not_check <- length(which(endsWith(stimulusIDs$stimulusId, "not")))
+    if (n_not_check != n_nots) {
+      print("Sanity error: number of author-marked stimuli differs of the number of not-s given in the specification")
+      print(n_not_check)
+      print(n_nots)
+      stop()
     }
     
+    # checking coding of the stimuli 
+    for (naam in stimulus_csv$Naam) {
+      current_stimulus <- subset(stimulusIDs, grepl(naam, stimulusId))
+      if (nrow(current_stimulus) != 1) {
+        print("Sanity error: there is an ambigous encoding for the stimuli corresponding to the author")
+        print(naam)
+        stop()
+      }
+    }
     
     
     # on the multiple submission the last attempt is taken as the end result
@@ -134,9 +143,7 @@ for (rawUUID in participants_uuids$V1)  {
     
     
     userName <- subset(participants_data, userId == user)$workerId
-    
-    isAuthor <- 0
-    user_response <- ""
+   
     
    stimulus_responses_user <- data.frame()
     
