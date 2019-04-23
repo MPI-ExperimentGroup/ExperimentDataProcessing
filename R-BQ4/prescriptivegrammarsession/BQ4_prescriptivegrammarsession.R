@@ -13,8 +13,8 @@ n_correct_sentences <- 20
 n_incorrect_sentences <- 20
 # read stimuli from the csv file
 
-stimuli_csv <- read.table("Stimuli_megapilot.csv",  header=TRUE, sep=";")
-
+stimuli_csv_raw <- read.table("Stimuli_megapilot.csv",  header=TRUE, sep=";")
+stimuli_csv <- subset(stimuli_csv_raw, !grepl("Practice", Soundfile))
 
 
 
@@ -146,6 +146,19 @@ for (rawUUID in participants_uuids$V1)  {
   
   stimulusresponses_user <- stimulusresponses_user[order(stimulusresponses_user$tagDate), ]
   
+  # sanity check order
+  for (i in 1:n_stimuli) {
+    if (stimuli_csv[i,]$Soundfile != paste0(stimulusresponses_user[i,]$stimulusName, ".wav")) {
+      print("Sanity error: The order of the stimuli is broken. The i-th stimulus must be ")
+      print(i)
+      print(stimuli_csv[i,]$Soundfile)
+      print("But it is:")
+      print(stimulusresponses_user[i,]$stimulusName)
+      print("Check reloads and multiple responses.")
+      stop()
+    }
+  }
+  
   user_responses <- rbind(user_responses, stimulusresponses_user)
   
     # sanity checks
@@ -249,9 +262,8 @@ write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
 user_responses[] <- lapply(user_responses, as.character)
 
-#  Change values for IsUserCorrect and StimulusButton from true/false to 1/0
 user_responses$response <- ifelse(user_responses$response == "Correct", 1, 0)
-user_responses$isCorrect <- ifelse(user_responses$isCorrect == "correct", 1, 0)
+user_responses$isCorrect <- ifelse(user_responses$isCorrect == TRUE, 1, 0)
 
 
 write.csv(user_responses, file=paste0(experiment_abr,".item_data.csv"))
