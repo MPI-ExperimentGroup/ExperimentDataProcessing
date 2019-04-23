@@ -75,9 +75,6 @@ stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]], !gre
 user_scores <- data.frame()
 user_responses <- data.frame()
 
-users_multiple_submission <- data.frame()
-stimulusIDs <- data.frame()
-
 start_pos<- nchar("./static/stimuli/") +1
 
 for (rawUUID in participants_uuids$V1)  {
@@ -146,6 +143,9 @@ for (rawUUID in participants_uuids$V1)  {
     stimulusresponses_user[i,]$stimulusName <- currentStimulusName
   }
  
+  
+  stimulusresponses_user <- stimulusresponses_user[order(stimulusresponses_user$tagDate), ]
+  
   user_responses <- rbind(user_responses, stimulusresponses_user)
   
     # sanity checks
@@ -253,7 +253,6 @@ user_responses[] <- lapply(user_responses, as.character)
 user_responses$response <- ifelse(user_responses$response == "Correct", 1, 0)
 user_responses$isCorrect <- ifelse(user_responses$isCorrect == "correct", 1, 0)
 
-# Re-sort by tagDate
-user_responses <- user_responses[order(user_responses[,3]), ]
+
 write.csv(user_responses, file=paste0(experiment_abr,".item_data.csv"))
 
