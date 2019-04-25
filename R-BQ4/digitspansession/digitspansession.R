@@ -7,7 +7,25 @@ library(tidyr)
 library(stringr)
 source("../shared/BQ4_supportFunctions.R")
 
+## parameters (specification) --------------------------------------------------####
+
+n_stimuli_forward <-  16
+n_stimuli_backward <-  14
+n_stimuli_per_length <- 2
+max_n_allowed_errors <- 1
+min_length <- 2
+max_length_forward <- 9
+max_length_forward <- 8
+
+
+# read stimuli from the csv file
+
+stimuli_csv_forward <- read.table("Digitspan_stimuli_forward.csv",  header=TRUE, sep=";")
+stimuli_csv_backward <- read.table("Digitspan_stimuli_backward.csv",  header=TRUE, sep=";")
+
 ##--Configuration-------------------------------------------------------------##
+
+
 
 
 experiment_abr <- "digitspansession"
@@ -44,8 +62,7 @@ participants <- get_embedded("participants", participants_columns, admin_url)
 participants_data <- subset(participants[["currentData"]], 
                             staleCopy == FALSE)
 
-tagpairevents_columns <- c("userId", "tagDate", "eventTag", 
-                           "tagValue1", "tagValue2")
+tagpairevents_columns <- c("userId", "tagDate", "eventTag",  "tagValue1", "tagValue2")
 tagpairevents <- get_embedded("tagpairevents", tagpairevents_columns, admin_url, 1000)
 
 tagpairevents_data <- unique(tagpairevents[["currentData"]])
@@ -57,9 +74,10 @@ screenviews_data <- unique(subset(screenviews[["currentData"]]))
 eventsForward = subset(tagpairevents_data, !grepl("summary", eventTag) & eventTag !="DataSubmission" &  (eventTag!="StimulusAudioShown") & grepl("forward", tagValue1) )
 eventsBackward = subset(tagpairevents_data, !grepl("summary", eventTag) & eventTag !="DataSubmission" & (eventTag!="StimulusAudioShown") & grepl("backward", tagValue1) )
 
+
 ## help function 
 
-harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenName, startScreenMaxChars, endScreenName) {
+harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenName, startScreenMaxChars, endScreenName, stimuli_origin) {
   
   user_scores <- data.frame()
   user_responses <- data.frame()
@@ -89,7 +107,7 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
       mutate(eventTag = ifelse(tagValue2 %in% c("correct", "incorrect"), 
                                "isUserCorrect", eventTag))
     
-    new_user_response <- spread(new_user_response, eventTag, tagValue2)
+    new_user_response <- spread(new_user_response, eventTag, tagValue2) #eventTag content becomes a column name and tagValue2 becomes it corresponding value, given a pair uuid-tagValue1
     
     
     names(new_user_response)[names(new_user_response) == 'tagValue1'] <- 'stimulusSequence'
@@ -112,6 +130,79 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
     # Re-sort by fixation cross shown time-date
     new_user_response <- new_user_response[order(new_user_response[,7]), ]
     
+    # sanity checks
+    start <- nchar(roundname) + 1
+    band_error_counter <- 0
+    band_correct_counter <- 0
+    band_stimuli_conter <- 0
+    error_counter <- 0
+    correct_counter <- 0
+    
+    # sanity check 
+    for (i in 1:nrow(new_user_response)) {
+      
+      currentStimulusSequence <- new_user_response[i,]$stimulusSequence
+      
+      
+      if (band_stimuli_conter == n_stimuli_per_length) {
+        
+        if (band_error_counter + band_correct_counter != n_stimuli_per_length) {
+          print("Sanity error: the sum of band error counter and and correct counter does not equal to the given number of stimuli per band (length) ")
+          print(currentStimulusSequence <- new_user_response[i,]$stimulusSequence)
+          print(band_error_counter)
+          print(band_correct_counter)
+          print(n_stimuli_per_length)
+          stop()
+        }
+        
+        if (band_error_counter > max_n_allowed_errors) {
+          print("Sanity error: the procedure should have been stopped before proposing this tsimulus")
+          print(currentStimulusSequence <- new_user_response[i,]$stimulusSequence)
+          stop()
+        }
+        
+        band_error_counter <- 0
+        band_correct_counter <- 0
+      }
+      
+      
+      l <- nchar(currentStimulusSequence)
+      currentStimulusSequence <- substring(currentStimulusSequence, start, l)
+      currentStimulusSequence <-currentStimulusSequence %>% str_replace_all("-", "")
+      if (currentStimulusSequence  != stimuli_origin[i,]$string) {
+        print("Sanity check error: incorrect sequence of stimuli, the following stimulus on the wrong position:")
+        print(new_user_response[i,]$stimulusSequence)
+        stop()
+      }
+      if (stimuli_origin[i,]$Correct.Answer == new_user_response[i,]$userResponse) {
+        if (new_user_response[i,]$isUserCorrect != "correct") {
+          print("Sanity check error: worong evaluation of the response")
+          print(new_user_response[i,]$stimulusSequence)
+          print(new_user_response[i,]$userResponse)
+          print(new_user_response[i,]$isUserCorrect)
+          print("Correct answer by secification")
+          print(stimuli_origin[i,]$Correct.Answer)
+          stop()
+        } else {
+          band_correct_counter <- band_correct_counter + 1
+          correct_counter <- correct_counter + 1
+        }
+      } else {
+        if (new_user_response[i,]$isUserCorrect != "incorrect") {
+          print("Sanity check error: worong evaluation of the response")
+          print(new_user_response[i,]$stimulusSequence)
+          print(new_user_response[i,]$userResponse)
+          print(new_user_response[i,]$isUserCorrect)
+          stop()
+        } else {
+          band_error_counter <- band_error_counter + 1
+          error_counter <- error_counter + 1
+        }
+      }
+    } 
+    
+    # on finishingthe loop l will have the length of the last shown stimulus
+    
     user_responses <- rbind(user_responses, new_user_response)
     
     
@@ -119,10 +210,28 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
     n_correct <- length(which(new_user_response$isUserCorrect == "correct"))
     n_incorrect <- length(which(new_user_response$isUserCorrect == "incorrect"))
     
+    # sanity checks  
+    if (n_correct !=  correct_counter) {
+      print("Sanity check error: frinex-calculated number of correct responses is not equal to the R-calculated 'manually'")
+      print(n_correct)
+      print(correct_counter)
+      stop()
+    }
+    if (n_incorrect !=  error_counter) {
+      print("Sanity check error: frinex-calculated number of incorrect responses is not equal to the R-calculated 'manually'")
+      print(n_incorrect)
+      print(error_counter)
+      stop()
+    }
     
     if (n_correct > 0) {
       correct_rows <- subset(new_user_response, isUserCorrect == "correct")
       max_length <- max(correct_rows$stimulusLength)
+      if (l != max_length) {
+        print("Sanity check error: the max length of the correct stimulus does not coinside with the length of the last shown stimulus (they must be in one length block)")
+        print(max_length)
+        print(l)
+      }
     } else {
       max_length <- " " 
     }
@@ -161,11 +270,11 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
 
 ##--Get aggregates ----------------------------------------------##
 
-results_forward <- harvest_scores(participants_uuids$V1, eventsForward, "forward", "RunTrialsForward", 16, "InstructionsBackward")
+results_forward <- harvest_scores(participants_uuids$V1, eventsForward, "forward", "RunTrialsForward", 16, "InstructionsBackward", stimuli_csv_forward)
 user_scores_forward <- results_forward$user_scores
 user_responses_forward <- results_forward$user_responses
 
-results_backward <- harvest_scores(participants_uuids$V1, eventsBackward, "backward", "RunTrialsBackward", 17, "Admin")
+results_backward <- harvest_scores(participants_uuids$V1, eventsBackward, "backward", "RunTrialsBackward", 17, "Admin", stimuli_csv_backward)
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
 
