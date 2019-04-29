@@ -4,6 +4,7 @@ library(jsonlite)
 library(httr)
 library(dplyr)
 library(tidyr)
+library(stringr)
 source("shared/BQ4_supportFunctions_2018.R")
 
 
@@ -61,6 +62,10 @@ fast_track$UserAnswer <- lapply(strsplit(fast_track$TagValue2,";"),
 fast_track$IsUserCorrect <- lapply(strsplit(fast_track$TagValue2,";"), 
                                            function(x) x[4])
 
+fast_track$timeStamp <- lapply(strsplit(fast_track$TagValue2,";"), 
+                               function(x) x[5])
+
+
 fine_tuning <- subset(tagevents_data, EventTag == "fine_tuning")
 
 fine_tuning$label <- lapply(strsplit(fine_tuning$TagValue2,";"), 
@@ -74,6 +79,19 @@ fine_tuning$UserAnswer <- lapply(strsplit(fine_tuning$TagValue2,";"),
 
 fine_tuning$IsUserCorrect <- lapply(strsplit(fine_tuning$TagValue2,";"), 
                                               function(x) x[4])
+
+fine_tuning$timeStamp <- lapply(strsplit(fine_tuning$TagValue2,";"), 
+                                    function(x) x[5])
+
+# Olha
+
+rating_buttons <- subset(tagevents_data, EventTag == "RatingButton")
+
+rating_buttons$label <- lapply(strsplit(rating_buttons$TagValue1,"_"), 
+                               function(x) x[1])
+names(rating_buttons)[names(rating_buttons) == 'TagValue2'] <- 'UserAnswer'
+
+rating_buttons$UserAnswer <- str_replace_all(rating_buttons$UserAnswer, "&#44;", ",")
 
 ##--Functions-----------------------------------------------------------------##
 
@@ -113,27 +131,12 @@ split_rounds <- function(fine_tuning){
 
 ##--Get oscillations for each user--------------------------------------------##
 
-user_scores  <- as.vector(c())
-user_scores <- rbind(user_scores, c("user", "userName", 
-                                    "score R1", 
-                                    "BestFastTrack R1",
-                                    "Cycle2oscillation R1", 
-                                    "EnoughFineTuningStimuli R1", 
-                                    "Champion R1", "Loser R1",
-                                    "num_2_oscillations R1", 
-                                    "2_oscillations_score R1",
-                                    "originalScoreCorrect R1",
-                                    "score R2", 
-                                    "BestFastTrack R2",
-                                    "Cycle2oscillation R2", 
-                                    "EnoughFineTuningStimuli R2", 
-                                    "Champion R2", "Loser R2",
-                                    "num_2_oscillations R2", 
-                                    "2_oscillations_score R2",
-                                    "originalScoreCorrect R2"
-                                    ))
+user_scores <- data.frame()
+user_responses <- data.frame()
 
 participants_uuids <- read.csv("participants_pre_megapilot.csv", header = FALSE)
+
+options(warn=2)
 
 for (rawUUID in participants_uuids$V1)  {
   
@@ -152,6 +155,7 @@ for (rawUUID in participants_uuids$V1)  {
   if (!nrow(user_summary) || nrow(user_summary) == 1){
     next
   }
+  
   user_summary_r1 <- user_summary[1,]
   user_summary_r2 <- user_summary[2,]
   
@@ -160,7 +164,8 @@ for (rawUUID in participants_uuids$V1)  {
   user_summary_r2 <- lapply(strsplit(user_summary_r2$TagValue2,";"), 
                             function(x) x)
   user_score_r1 <- user_summary_r1[[1]][1]
-  user_score_r1 <- user_summary_r1[[1]][1]
+  # Olha: commented out the duplicated row
+  # user_score_r1 <- user_summary_r1[[1]][1]
   BestFastTrack_r1	<- user_summary_r1[[1]][2]
   Cycle2oscillation_r1	<- user_summary_r1[[1]][3]
   EnoughFineTuningStimuli_r1 <- user_summary_r1[[1]][4]
@@ -168,7 +173,8 @@ for (rawUUID in participants_uuids$V1)  {
   Loser_r1 <- user_summary_r1[[1]][5]
 
   user_score_r2 <- user_summary_r2[[1]][1]
-  user_score_r2 <- user_summary_r2[[1]][1]
+  # Olha: commented the duplicated row
+  # user_score_r2 <- user_summary_r2[[1]][1]
   BestFastTrack_r2	<- user_summary_r2[[1]][2]
   Cycle2oscillation_r2	<- user_summary_r2[[1]][3]
   EnoughFineTuningStimuli_r2 <- user_summary_r2[[1]][4]
@@ -177,28 +183,39 @@ for (rawUUID in participants_uuids$V1)  {
   
   fine_tuning_1user <- subset(fine_tuning, UserId == user)
   
+  
   fine_tuning_rounds <- split_rounds(fine_tuning_1user)
   
   fine_tuning_round1 <- fine_tuning_rounds[["round1"]]
   fine_tuning_round2 <- fine_tuning_rounds[["round2"]]
   
-  fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
-  #raw_bandnumbers <- fine_tuning_1user$BandNumber
+  # Olha: removing rows which are headers (one of the minuses of the old version: there were rows that were headers which lead to erroneous data reading)
+  fine_tuning_round1 <- subset(fine_tuning_round1, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
+  fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
+  
+  #Olha: commenting out apparently redundant operation
+  #fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
+  
+  raw_bandnumbers <- fine_tuning_1user$BandNumber
   raw_bandnumbers_r1 <- fine_tuning_round1[,c("BandNumber", "IsUserCorrect")]
   raw_bandnumbers_r2 <- fine_tuning_round2[,c("BandNumber", "IsUserCorrect")]
   
   raw_bandnumbers_r1 <- remove_second_empty(raw_bandnumbers_r1)
   raw_bandnumbers_r2 <- remove_second_empty(raw_bandnumbers_r2)
   
-  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1)
-  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2)
+  # Olha (!): reduce_to_single gets now "fine_tuning_roundX" as a parameter
+  # since it is used in one of the branches (see the comment in the code for this function)
+  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1, fine_tuning_round1)
+  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2, fine_tuning_round2)
+  
+  
   
   #fine_tuning_bands <- subset(fine_tuning_1user, BandNumber != "-1" &
   #                              BandNumber != " " &
   #                              BandNumber != "BandNumber")
   
   #bandnumbers <- fine_tuning_bands$BandNumber
-
+  
   two_oscillations_output_r1 <- get_two_oscillations(bandnumbers_r1)
   num_2_oscillations_r1 <- two_oscillations_output_r1[['two_oscillations']]
   two_oscillations_score_r1 <- two_oscillations_output_r1[['score']]
@@ -211,50 +228,98 @@ for (rawUUID in participants_uuids$V1)  {
 
   print(paste0("num 2-oscillations R1: ",as.character(num_2_oscillations_r1)))
   print(paste0("num 2-oscillations R2: ",as.character(num_2_oscillations_r2)))
-  user_scores <- rbind(user_scores, c(user, userName,
-                                      user_score_r1, 
-                                      BestFastTrack_r1,
-                                      Cycle2oscillation_r1, 
-                                      EnoughFineTuningStimuli_r1, 
-                                      Champion_r1, Loser_r1,
-                                      num_2_oscillations_r1, 
-                                      two_oscillations_score_r1,
-                                      originalScoreCorrect_r1,
-                                      user_score_r2, 
-                                      BestFastTrack_r2,
-                                      Cycle2oscillation_r2, 
-                                      EnoughFineTuningStimuli_r2, 
-                                      Champion_r2, Loser_r2,
-                                      num_2_oscillations_r2, 
-                                      two_oscillations_score_r2,
-                                      originalScoreCorrect_r2
-                                      ))
+  
+  # Olha: updated output presentation
+  new_user_scores <- data.frame(user, userName,
+                                user_score_r1, 
+                                BestFastTrack_r1,
+                                Cycle2oscillation_r1, 
+                                EnoughFineTuningStimuli_r1, 
+                                Champion_r1, Loser_r1,
+                                num_2_oscillations_r1, 
+                                two_oscillations_score_r1,
+                                originalScoreCorrect_r1,
+                                user_score_r2, 
+                                BestFastTrack_r2,
+                                Cycle2oscillation_r2, 
+                                EnoughFineTuningStimuli_r2, 
+                                Champion_r2, Loser_r2,
+                                num_2_oscillations_r2, 
+                                two_oscillations_score_r2,
+                                originalScoreCorrect_r2
+  )
+  names(new_user_scores) <- c("user", "userName", 
+                              "score R1", 
+                              "BestFastTrack R1",
+                              "Cycle2oscillation R1", 
+                              "EnoughFineTuningStimuli R1", 
+                              "Champion R1", "Loser R1",
+                              "num_2_oscillations R1", 
+                              "2_oscillations_score R1",
+                              "originalScoreCorrect R1",
+                              "score R2", 
+                              "BestFastTrack R2",
+                              "Cycle2oscillation R2", 
+                              "EnoughFineTuningStimuli R2", 
+                              "Champion R2", "Loser R2",
+                              "num_2_oscillations R2", 
+                              "2_oscillations_score R2",
+                              "originalScoreCorrect R2")
+  
+  user_scores <- rbind(user_scores, new_user_scores)
+  
+  
+  # Olha: item data table
+  
+  fast_track_1user <- subset(fast_track, UserId == user)
+  fast_track_rounds <- split_rounds(fast_track_1user)
+  
+  fast_track_round1 <- fast_track_rounds[["round1"]]
+  fast_track_round2 <- fast_track_rounds[["round2"]]
+  
+  fast_track_round1 <- subset(fast_track_round1, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;") )
+  fast_track_round2 <- subset(fast_track_round2, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;"))
+  
+  fast_track_round1 <- subset(fast_track_round1, select = -c(TagValue1, TagValue2, EventMs, TagDate))
+  fast_track_round2 <- subset(fast_track_round2, select = -c(TagValue1, TagValue2, EventMs, TagDate)) 
+  
+  names(fast_track_round1)[names(fast_track_round1) == 'EventTag'] <- 'phase'
+  names(fast_track_round2)[names(fast_track_round2) == 'EventTag'] <- 'phase'
+  
+  
+  fine_tuning_round1 <- subset(fine_tuning_round1, !startsWith(TagValue2, " ;"))
+  fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2, " ;"))
+  
+  fine_tuning_round1 <- subset(fine_tuning_round1, select = -c(TagValue1, TagValue2, EventMs, TagDate))
+  fine_tuning_round2 <- subset(fine_tuning_round2, select = -c(TagValue1, TagValue2, EventMs, TagDate))
+  
+  names(fine_tuning_round1)[names(fine_tuning_round1) == 'EventTag'] <- 'phase'
+  names(fine_tuning_round2)[names(fine_tuning_round2) == 'EventTag'] <- 'phase'
+  
+  
+  
+  new_user_responses_r1 <- fast_track_round1
+  new_user_responses_r1 <- rbind(new_user_responses_r1, fine_tuning_round1)
+  new_user_responses_r1$phase <- paste0(new_user_responses_r1$phase,"_1")
+  
+  new_user_responses_r2 <- fast_track_round2
+  new_user_responses_r2 <- rbind(new_user_responses_r2, fine_tuning_round2)
+  new_user_responses_r2$phase <- paste0(new_user_responses_r2$phase,"_2")
+  
+  user_responses <- rbind(user_responses, new_user_responses_r1)
+  user_responses <- rbind(user_responses, new_user_responses_r2)
 }
 
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
+write.csv(user_responses, file=paste0(experiment_abr,".item_data.csv"))
+
 ##--Get oscillations for each user only followed by an error------------------##
 
 
-user_scores  <- as.vector(c())
-user_scores <- rbind(user_scores, c("user", "userName", 
-                                    "score R1", 
-                                    "BestFastTrack R1",
-                                    "Cycle2oscillation R1", 
-                                    "EnoughFineTuningStimuli R1", 
-                                    "Champion R1", "Loser R1",
-                                    "num_2_oscillations R1", 
-                                    "2_oscillations_score R1",
-                                    "originalScoreCorrect R1",
-                                    "score R2", 
-                                    "BestFastTrack R2",
-                                    "Cycle2oscillation R2", 
-                                    "EnoughFineTuningStimuli R2", 
-                                    "Champion R2", "Loser R2",
-                                    "num_2_oscillations R2", 
-                                    "2_oscillations_score R2",
-                                    "originalScoreCorrect R2"
-))
+# Olha: output presentation correction
+user_scores  <- data.frame()
+user_responses <- data.frame()
 
 for (rawUUID in participants_uuids$V1)  {
   
@@ -281,7 +346,8 @@ for (rawUUID in participants_uuids$V1)  {
   user_summary_r2 <- lapply(strsplit(user_summary_r2$TagValue2,";"), 
                             function(x) x)
   user_score_r1 <- user_summary_r1[[1]][1]
-  user_score_r1 <- user_summary_r1[[1]][1]
+  # Olha: commented out the duplicated row
+  # user_score_r1 <- user_summary_r1[[1]][1]
   BestFastTrack_r1	<- user_summary_r1[[1]][2]
   Cycle2oscillation_r1	<- user_summary_r1[[1]][3]
   EnoughFineTuningStimuli_r1 <- user_summary_r1[[1]][4]
@@ -289,7 +355,8 @@ for (rawUUID in participants_uuids$V1)  {
   Loser_r1 <- user_summary_r1[[1]][5]
   
   user_score_r2 <- user_summary_r2[[1]][1]
-  user_score_r2 <- user_summary_r2[[1]][1]
+  # Olha: commented out the duplicated row
+  # user_score_r2 <- user_summary_r2[[1]][1]
   BestFastTrack_r2	<- user_summary_r2[[1]][2]
   Cycle2oscillation_r2	<- user_summary_r2[[1]][3]
   EnoughFineTuningStimuli_r2 <- user_summary_r2[[1]][4]
@@ -303,7 +370,12 @@ for (rawUUID in participants_uuids$V1)  {
   fine_tuning_round1 <- fine_tuning_rounds[["round1"]]
   fine_tuning_round2 <- fine_tuning_rounds[["round2"]]
   
-  fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
+  # Olha: removing rows which are headers (one of the minuses of the old version: there were rows that were headers which lead to erroneous data reading)
+  fine_tuning_round1 <- subset(fine_tuning_round1, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
+  fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
+  
+  #Olha: commenting out apparently redundant operation
+  #fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
   
   raw_bandnumbers_r1 <- fine_tuning_round1[,c("BandNumber", "IsUserCorrect")]
   raw_bandnumbers_r2 <- fine_tuning_round2[,c("BandNumber", "IsUserCorrect")]
@@ -314,8 +386,10 @@ for (rawUUID in participants_uuids$V1)  {
   # bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1)
   # bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2)
   
-  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1, add_isUserCorrect = TRUE)
-  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2, add_isUserCorrect = TRUE)
+  # Olha (!): reduce_to_single gets now "fine_tuning_roundX" as a parameter
+  # since it is used in one of the branches (see the comment in the code for this function)
+  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1, fine_tuning_round1, add_isUserCorrect = TRUE)
+  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2, fine_tuning_round2, add_isUserCorrect = TRUE)
   
   #two_oscillations_output_r1 <- get_two_oscillations(bandnumbers_r1)
   two_oscillations_output_r1 <- get_two_oscillations_with_error(bandnumbers_r1)
@@ -331,7 +405,9 @@ for (rawUUID in participants_uuids$V1)  {
   
   print(paste0("num 2-oscillations R1: ",as.character(num_2_oscillations_r1)))
   print(paste0("num 2-oscillations R2: ",as.character(num_2_oscillations_r2)))
-  user_scores <- rbind(user_scores, c(user, userName,
+  
+  # Olha: updated output presentation
+  new_user_scores <- data.frame(user, userName,
                                       user_score_r1, 
                                       BestFastTrack_r1,
                                       Cycle2oscillation_r1, 
@@ -348,7 +424,27 @@ for (rawUUID in participants_uuids$V1)  {
                                       num_2_oscillations_r2, 
                                       two_oscillations_score_r2,
                                       originalScoreCorrect_r2
-  ))
+  )
+  
+  names(new_user_scores) <- c("user", "userName", 
+                              "score R1", 
+                              "BestFastTrack R1",
+                              "Cycle2oscillation R1", 
+                              "EnoughFineTuningStimuli R1", 
+                              "Champion R1", "Loser R1",
+                              "num_2_oscillations R1", 
+                              "2_oscillations_score R1",
+                              "originalScoreCorrect R1",
+                              "score R2", 
+                              "BestFastTrack R2",
+                              "Cycle2oscillation R2", 
+                              "EnoughFineTuningStimuli R2", 
+                              "Champion R2", "Loser R2",
+                              "num_2_oscillations R2", 
+                              "2_oscillations_score R2",
+                              "originalScoreCorrect R2")
+  
+  user_scores <- rbind(user_scores, new_user_scores)
 }
 
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores_w_error_test.csv"))
