@@ -7,6 +7,15 @@ library(tidyr)
 library(stringr)
 source("../shared/BQ4_supportFunctions.R")
 
+# Specification -------------------------------------------------------------##
+
+n_bands <-  7
+n_bands_practice <-  2
+n_stimuli_per_length <- 2
+max_n_allowed_errors <- 1
+min_length <- 2
+max_length <- 9
+
 ##--Configuration-------------------------------------------------------------##
 
 
@@ -36,25 +45,28 @@ req_auth <- httr::POST(login_url, body = auth_body)
 ##--Main----------------------------------------------------------------------##
 
 
-stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect")
+stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
 stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
-stimulusresponses_data <- subset(stimulusresponses[["currentData"]])
+stimulusresponses_data <- stimulusresponses[["currentData"]]
 
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE)
+participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep=",", fileEncoding = "UTF-8-BOM")
 
 screenviews_columns <- c("userId", "screenName", "viewDate")
 screenviews <- get_embedded("screenviews", screenviews_columns, admin_url)
-screenviews_data <- unique(subset(screenviews[["currentData"]]))
+screenviews_data <- unique(screenviews[["currentData"]])
 
 
-responsesPracticeForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsPracticeForward" & !is.na(response) & nchar(str_trim(response))>0 ))
-responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackwardPractice" & !is.na(response) & nchar(str_trim(response))>0))
+responsesPracticeForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsPracticeForward" & !is.na(response)))
+responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackwardPractice" & !is.na(response)))
 
-responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) & nchar(str_trim(response))>0 & is.na(isCorrect)))
-responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & nchar(str_trim(response))>0  & is.na(isCorrect)))
+responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) &  is.na(isCorrect)))
+responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & is.na(isCorrect)))
 
 responsesForwardCheck <- subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(isCorrect))
 responsesBackwardCheck <-subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(isCorrect))
+
+users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
+
 
 ## help function 
 
@@ -71,16 +83,36 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     print("Num events for user:")
     
     raw_user_responses <- subset(responses, userId == user)
-   
-    print(nrow(raw_user_responses))
     
-    # order responses by time
-    # raw_user_responses <- raw_user_responses[order(raw_user_responses[,2]), ]
+    raw_user_responses_noduplicates <- data.frame()
+    raw_user_responses_noduplicates <- rbind(raw_user_responses_noduplicates, raw_user_responses[1,])
+    WRONG
+    # controlling duplicated events
+    for (i in 2:nrow(raw_user_responses)) {
+      isAlHere <- FALSE
+      for (j in 1:nrow(raw_user_responses_noduplicates)) {
+        if ((raw_user_responses[i,]$stimulusId == raw_user_responses_noduplicates[j,]$stimulusId) && (raw_user_responses[i,]$response == raw_user_responses_noduplicates[j,]$response)) {
+           users_multiple_submission <- add_row(users_multiple_submission, userId = user,
+                                                 reason = paste0(raw_user_responses_noduplicates[j,]$stimulusId, "with the response ", raw_user_responses_noduplicates[j,]$response, "time ", raw_user_responses_noduplicates[j,]$tagDate),
+                                                 details = "the latest of the duplicated will be considered")
+            isAlHere <- TRUE
+            if (raw_user_responses[i,]$tagDate > raw_user_responses_noduplicates[j,]$tagDate) {
+              raw_user_responses_noduplicates[j,] <- raw_user_responses[i,]
+          
+          }
+        }
+      }
+      if (!isAlHere) {
+        raw_user_responses_noduplicates <- rbind(raw_user_responses_noduplicates, raw_user_responses[i,])
+      }
+    }
+   
+    
     new_user_responses <- data.frame()
     
     for (stimulusID in unique(raw_user_responses$stimulusId)) {
       
-       new_user_stimulus_response <- subset(raw_user_responses, stimulusId == stimulusID)
+       new_user_stimulus_response <- subset(raw_user_responses_noduplicates, stimulusId == stimulusID)
       
         # adding column representing stimulus sequence length
        if (grepl("Practice", stimulusID)) {
@@ -146,8 +178,21 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        
     }
     
-    n_correct <- length(which(new_user_responses$isCorrect == 1))
-    n_incorrect <- length(which(new_user_responses$isCorrect == 0))
+    n_correct <- as.numeric(length(which(new_user_responses$isCorrect == 1)))
+    n_incorrect <- as.numeric(length(which(new_user_responses$isCorrect == 0)))
+    
+    if (startsWith(roundname, "practice")){
+      nStimuli <-  n_stimuli_per_length * n_bands_practice
+    } else {
+      nStimuli <- n_stimuli_per_length * n_bands
+    }
+    if (n_correct + n_incorrect > nStimuli) {
+      print("Sanity error: the sun of correctly and incorrectly answered stimuli is great than the overall possible amount of stimuli for this part")
+      print(n_correct)
+      print(n_incorrect)
+      print(nStimuli)
+      stop()
+    }
     
     # max length achieved
     if (n_correct > 0) {
@@ -175,12 +220,11 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
             print("stimuli IDs:")
             print(new_user_responses$stimulusId)
             stop()
-          } else {
-            print("Check-up passed: the number of rows for a particulrar length is 2.")
-          }
-          
-          if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect == 0) {
-            print("Error: The number of correct responses for a particular stimulus length (not completely failed length) is zero.")
+          } 
+         
+          if ((as.numeric(lengthRows[1,]$isCorrect) + as.numeric(lengthRows[2,]$isCorrect)) < max_n_allowed_errors) {
+            print(paste0("Error: The number of correct responses for a not-completely failed length is less than ",  max_n_allowed_errors))
+            print("The round should have stopped here")
             print("User:")
             print(user)
             print("Length:")
@@ -188,9 +232,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
             print("stimuli IDs:")
             print(new_user_responses$stimulusId)
             stop()
-          } else {
-            print("Check-up passed: the number of correct responses for a particular stimulus length (not completely failed length) is not zero.")
-          }
+          } 
         } 
       }
       
@@ -198,7 +240,16 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
       if (max_length < 9) {
         failedLength <- ifelse(max_length == 0, 3, max_length+1)
         lengthRows <- subset(new_user_responses, new_user_responses$stimulusLength == failedLength) # the failed length
-        if (lengthRows[1,]$isCorrect + lengthRows[2,]$isCorrect > 0) {
+        if (nrow(lengthRows) != n_stimuli_per_length) {
+          print(paste0("Error: The number of rows for a particulrar length is not ", n_stimuli_per_length))
+          print("User:")
+          print(user)
+          print("Length (failed):")
+          print(failedLength)
+          stop()
+        } 
+       
+        if ((as.numeric(lengthRows[1,]$isCorrect) + as.numeric(lengthRows[2,]$isCorrect)) > 0) {
           print("Error: The number of correct responses for a particular stimulus length (for completely failed length) is not zero.")
           print("The experiment should have been continued.")
           print("User:")
@@ -208,8 +259,6 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
           print("stimuli IDs:")
           print(new_user_responses$stimulusId)
           stop()
-        } else {
-          print("Check-up passed: the number of correct responses for a particular stimulus length (completely failed length) is zero.")
         }
       }
       
@@ -295,6 +344,8 @@ results_forward <- harvest_scores(participants_uuids$V1, responsesForward, "forw
 user_scores_forward <- results_forward$user_scores
 user_responses_forward <- results_forward$user_responses
 
+write.csv(user_responses_forward, file=paste0(experiment_abr,".forward_item_data_.csv"))
+
 if (nrow(participants_uuids) != nrow(user_scores_forward) ) {
   print("Main Forward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
   print(nrows(participants_uuids))
@@ -306,6 +357,8 @@ if (nrow(participants_uuids) != nrow(user_scores_forward) ) {
 results_backward <- harvest_scores(participants_uuids$V1, responsesBackward, "backward", screenviews_data, "RunTrialsBackward", "Admin", responsesBackwardCheck)
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
+
+write.csv(user_responses_backward, file=paste0(experiment_abr,".backward_item_data_.csv"))
 
 if (nrow(participants_uuids) != nrow(user_scores_backward) ) {
   print("Practice Nackward: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
@@ -319,4 +372,4 @@ user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCo
 user_scores$totalIncorrect <- (user_scores$forwardIncorrect + user_scores$backwardIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
-
+write.csv(users_multiple_submission, file=paste0(experiment_abr,".duplicated_records.csv"))
