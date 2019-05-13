@@ -179,7 +179,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
           print(overslaans[j])
           stop()
         } else {
-          row <- subset(originStimuli, code == overslaan[j])
+          row <- subset(originStimuli, Picture == overslaans[j])
           correctAnswer <-  row[1,]$Correct_Answer           
           if (new_user_responses[i,]$response == correctAnswer) {
             if (!new_user_responses[i,]$isCorrect)  {
