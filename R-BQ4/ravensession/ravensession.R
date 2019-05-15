@@ -400,5 +400,10 @@ user_scores$totalCorrect <- (user_scores$mainCorrect + user_scores_practice$prac
 user_scores$totalIncorrect <- (user_scores$mainIncorrect + user_scores_practice$practiceIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
+write.csv(user_responses, file=paste0(experiment_abr,".data_items.csv"))
 
+if (nrow(users_multiple_submission)==0) {
+  users_multiple_submission <- add_row(users_multiple_submission, userId = " ", reason = "no multiple responses on the samestimuli were detected", details =" ")
+}
+write.csv(users_multiple_submission, file=paste0(experiment_abr,".multiple_responses.csv"))
 

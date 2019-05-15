@@ -13,6 +13,7 @@ n_stimuli <-  60
 n_correct_words <- 30
 n_incorrect_words <- 30
 
+stimuli_csv <- read.csv("Spellingtoets_pilot.csv", header  =TRUE, sep =";", fileEncoding = "UTF-8-BOM")
 
 ##--Configuration-------------------------------------------------------------##
 
@@ -45,7 +46,7 @@ req_auth <- httr::POST(login_url, body = auth_body)
 
 ###--Get all data from an experiment-----------------------------------------###
 
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE)
+participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep =",", fileEncoding = "UTF-8-BOM")
 
 participants_columns <- c("userId", "workerId", "staleCopy", "submitDate")
 participants <- get_embedded("participants", participants_columns, admin_url)
@@ -78,8 +79,8 @@ stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]]))
 user_scores <- data.frame()
 user_responses <- data.frame()
 
-users_multiple_submission <- data.frame()
-stimulusIDs <- data.frame()
+users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
+stimulusIDs <-  data.frame()
 
 
 for (rawUUID in participants_uuids$V1)  {
@@ -107,6 +108,35 @@ for (rawUUID in participants_uuids$V1)  {
       stop()
     }
     
+    # sanity check
+    correct_words <- stimuli_csv["Woord"]
+    incorrect_words <- stimuli_csv["Woord.1"]
+    for (j in 1:nrow(stimulusIDs)){
+      words <- strsplit(stimulusIDs[j,],'_')
+      ll <- lengths(words)
+      word <- lapply(words , function(x) x[2])
+      if (ll > 3) {
+        word <-  paste0(word, " ", lapply(words, function(x) x[3]))
+      }
+      
+      if (endsWith(stimulusIDs[j,], 'correct')){
+        if (!(word %in% correct_words$Woord)) {
+          print("Sanity error: as a correct-word incoded stimulus is not in the list of words")
+          print(stimulusIDs[j,])
+          stop()
+        } else {
+          print("Sanity check encoding words ok")
+        }
+      } else {
+        if (!( word %in% incorrect_words$Woord.1)) {
+          print("Sanity error: as a incorrect-word incoded stimulus is not in the list of incorrect words")
+          print(stimulusIDs[j,])
+          stop()
+        } else {
+          print("Sanity check encoding wrong words ok")
+        }
+      }
+    }
   }
   
   
@@ -118,12 +148,17 @@ for (rawUUID in participants_uuids$V1)  {
   score_events <- score_events[order(score_events[,"tagDate"]), ]
   
   if (nrow(score_events) > 1) {
-    new_multiple_submission <- data.frame("userId"=c(user))
-    users_multiple_submission <- rbind(users_multiple_submission, new_multiple_submission)
+    for (j in 2:nrow(score_events)) {
+      if (score_events[j,]$tagValue2 != score_events[1,]$tagValue2){
+        users_multiple_submission <- add_row(users_multiple_submission, userId = user, 
+                                             reason = "multiple score submission, possible multiple 'submit' press", details = "not critical, scores and errors are computed manually")
+        break
+      }
+    }
   }
   
   if (nrow(score_events) < 1) {
-    print("Error in the submission of the participant's results")
+    print("Error in the submission of the participant's results, no scores submitted, data ma be incomplete")
     stop()
   }
   
@@ -132,23 +167,26 @@ for (rawUUID in participants_uuids$V1)  {
   # submitDate <- subset(participants_data, userId == user)$submitDate
   
   
-  userName <- subset(participants_data, userId == user)$workerId
-  
-  isAuthor <- 0
-  user_response <- ""
-  
   stimulus_responses_user <- data.frame()
   
   for (stimulusID in  stimulusIDs$stimulusId) {
     stimulus_event <- subset(stimulusresponses_user_raw, stimulusId == stimulusID)
-    first_time <- max(stimulus_event$tagDate)
-    stimulus_event <- subset(stimulus_event, tagDate ==  first_time)
+    if (nrow(stimulus_event)>1) {
+      critical <- FALSE
+      for (j in 2:nrow(stimulus_event)) {
+        if (stimulus_event[j,]$response != stimulus_event[1,]$response){
+          critical <- TRUE
+          users_multiple_submission <- add_row(users_multiple_submission, userId = user, 
+                                               reason = paste0("multiple submission response on stimulus", stimulusID), details = "critical, different responses detected;  the last one considered")
+        }
+       
+      }
+     
+    }
+    last_time <- max(stimulus_event$tagDate)
+    stimulus_event <- subset(stimulus_event, tagDate ==  last_time)
     stimulus_responses_user <- rbind(stimulus_responses_user, stimulus_event)
   }
-  
-  
-  print("Num responses for user:")
-  print(nrow(stimulus_responses_user))
   
   
   
@@ -271,15 +309,15 @@ for (rawUUID in participants_uuids$V1)  {
     print("Sanity error: the sum  of true positives and false negatives computed by R differs from the total amount of 'fout' words")
     print(TP)
     print(TN)
-    print(scoreFrinex)
+    print(n_correct_words)
     stop()
   }
   
-  if (as.numeric(TN) + as.numeric(FP) != as.numeric(n_correct_words) ) {
+  if (as.numeric(TN) + as.numeric(FP) != as.numeric(n_incorrect_words) ) {
     print("Sanity error: the sum  of false positives and true negatives computed by R differs from the total amount of correct words")
     print(TN)
     print(FP)
-    print(scoreFrinex)
+    print(n_incorrect_words)
     stop()
   }
   
@@ -287,15 +325,15 @@ for (rawUUID in participants_uuids$V1)  {
     print("Sanity error: the sum  of true positives and negatives computed by R differs from the total amount of correct participant's answers")
     print(TP)
     print(TN)
-    print(scoreFrinex)
+    print(n_correct)
     stop()
   }
   
   if (as.numeric(FP) + as.numeric(FN) != as.numeric(n_incorrect) ) {
-    print("Sanity error: the sum  of false positives and negatives computed by R differs from ttotal amount of incorrect participant's answers")
+    print("Sanity error: the sum  of false positives and negatives computed by R differs from total amount of incorrect participant's answers")
     print(FP)
     print(FN)
-    print(errorsFrinex)
+    print(n_incorrect)
     stop()
   }
   
@@ -327,6 +365,7 @@ for (rawUUID in participants_uuids$V1)  {
   print(paste0(as.character(testDuration), " min"))
   
   new_user_scores <- data.frame(user, TP, FP, TN, FN, testDuration, startTime, endTime)
+  
   names(new_user_scores) <- c("userId", 
                               "Hits (True Positives)",
                               "False Alarm (False Positives)",
@@ -336,6 +375,7 @@ for (rawUUID in participants_uuids$V1)  {
                              "Start time",
                              "End time"
   ) 
+ 
   user_scores <- rbind(user_scores, new_user_scores)
   
 } 
@@ -347,10 +387,20 @@ if  (nrow(user_scores) != nrow(participants_uuids)) {
   stop()
 }
 
+if (nrow(user_scores) != nrow(participants_uuids)) {
+  print("Something went wrong: the amount of rows in scores table differs from the amount of participant_uuid-s")
+  print(nrow(user_scores))
+  print(nrow(participants_uuids))
+} else {
+  print("Sanity check ok: the amount of rows in scores table equals to the amount of participant_uuid-s")
+  print(nrow(user_scores))
+}
 
+# write multiple submissions to file
+write.csv(users_multiple_submission, file=paste0(experiment_abr,".multiple_submission.csv"))
 
 # Write scores to file
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
-#user_responses <- user_responses[order(user_responses[,3], user_responses[,5]), ]
+#Write responses to file
 write.csv(user_responses, file=paste0(experiment_abr,".item_data.csv"))

@@ -46,7 +46,7 @@ tagevents <- read.csv("tagpairdata.csv", stringsAsFactors = FALSE)
 #tagevents_data <- unique(tagevents[["currentData"]])
 tagevents_data <- tagevents
 
-# concatenate fast track and finetuning
+
 
 fast_track <- subset(tagevents_data, EventTag == "fast_track")
 
@@ -62,8 +62,6 @@ fast_track$UserAnswer <- lapply(strsplit(fast_track$TagValue2,";"),
 fast_track$IsUserCorrect <- lapply(strsplit(fast_track$TagValue2,";"), 
                                            function(x) x[4])
 
-fast_track$timeStamp <- lapply(strsplit(fast_track$TagValue2,";"), 
-                               function(x) x[5])
 
 
 fine_tuning <- subset(tagevents_data, EventTag == "fine_tuning")
@@ -80,20 +78,29 @@ fine_tuning$UserAnswer <- lapply(strsplit(fine_tuning$TagValue2,";"),
 fine_tuning$IsUserCorrect <- lapply(strsplit(fine_tuning$TagValue2,";"), 
                                               function(x) x[4])
 
-fine_tuning$timeStamp <- lapply(strsplit(fine_tuning$TagValue2,";"), 
-                                    function(x) x[5])
+
 
 # Olha
 
 rating_buttons <- subset(tagevents_data, EventTag == "RatingButton")
-
 rating_buttons$label <- lapply(strsplit(rating_buttons$TagValue1,"_"), 
                                function(x) x[1])
 names(rating_buttons)[names(rating_buttons) == 'TagValue2'] <- 'UserAnswer'
+rating_buttons$UserAnswer <- ifelse(rating_buttons$UserAnswer == "JA&#44; ik ken dit woord", "true", "false")
 
-rating_buttons$UserAnswer <- str_replace_all(rating_buttons$UserAnswer, "&#44;", ",")
 
 ##--Functions-----------------------------------------------------------------##
+
+# Olha
+calculate_nonwords_ratio <- function(table, row) {
+  n_nonwords <- 0
+  for (i in 1:row){
+    if (table[i,]$BandNumber == -1) {
+      n_nonwords <- n_nonwords + 1
+    }
+  }
+  return(as.double(n_nonwords)/as.double(row))
+}
 
 ## split_rounds() splits the fine_tuning rows into a first and second round 
 
@@ -132,9 +139,9 @@ split_rounds <- function(fine_tuning){
 ##--Get oscillations for each user--------------------------------------------##
 
 user_scores <- data.frame()
-user_responses <- data.frame()
+item_data  <- as.vector(c())
 
-participants_uuids <- read.csv("participants_pre_megapilot.csv", header = FALSE)
+participants_uuids <- read.csv("participants_pre_megapilot.csv", header = FALSE, sep =';',  fileEncoding="UTF-8-BOM")
 
 options(warn=2)
 
@@ -151,10 +158,11 @@ for (rawUUID in participants_uuids$V1)  {
                            EventTag == "user_summary" & 
                            TagValue1 == "row000001")
   
+  # Olha (Florian complains that one of the user's was lost)
   ## Skip users that have no summary or that have a summary for only one round
-  if (!nrow(user_summary) || nrow(user_summary) == 1){
-    next
-  }
+  # if (!nrow(user_summary) || nrow(user_summary) == 1){
+    # next
+  #}
   
   user_summary_r1 <- user_summary[1,]
   user_summary_r2 <- user_summary[2,]
@@ -183,12 +191,12 @@ for (rawUUID in participants_uuids$V1)  {
   
   fine_tuning_1user <- subset(fine_tuning, UserId == user)
   
-  
   fine_tuning_rounds <- split_rounds(fine_tuning_1user)
   
   fine_tuning_round1 <- fine_tuning_rounds[["round1"]]
   fine_tuning_round2 <- fine_tuning_rounds[["round2"]]
   
+ 
   # Olha: removing rows which are headers (one of the minuses of the old version: there were rows that were headers which lead to erroneous data reading)
   fine_tuning_round1 <- subset(fine_tuning_round1, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
   fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
@@ -280,46 +288,103 @@ for (rawUUID in participants_uuids$V1)  {
   fast_track_round1 <- subset(fast_track_round1, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;") )
   fast_track_round2 <- subset(fast_track_round2, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;"))
   
-  fast_track_round1 <- subset(fast_track_round1, select = -c(TagValue1, TagValue2, EventMs, TagDate))
-  fast_track_round2 <- subset(fast_track_round2, select = -c(TagValue1, TagValue2, EventMs, TagDate)) 
+  # Select only necessary columns
+  fast_track_round1 <- fast_track_round1[,c("UserId","EventTag", "label",  "BandNumber",  "UserAnswer", "IsUserCorrect")]
+  fast_track_round2 <- fast_track_round2[,c("UserId","EventTag", "label",  "BandNumber",  "UserAnswer", "IsUserCorrect")]
+  
+  
+  fast_track_round1$nonwordRatioAtThisPoint <- NA
+  for (i in 1:nrow(fast_track_round1)){
+    fast_track_round1[i,]$nonwordRatioAtThisPoint <- calculate_nonwords_ratio(fast_track_round1, i)
+  }
+ 
+  fast_track_round2$nonwordRatioAtThisPoint <- NA
+  for (i in 1:nrow(fast_track_round2)){
+    fast_track_round2[i,]$nonwordRatioAtThisPoint <- calculate_nonwords_ratio(fast_track_round2, i)
+  }
   
   names(fast_track_round1)[names(fast_track_round1) == 'EventTag'] <- 'phase'
   names(fast_track_round2)[names(fast_track_round2) == 'EventTag'] <- 'phase'
   
+  fast_track_round1$Run <- 1
+  fast_track_round2$Run <- 2
+  
+  fast_track_round1 <- fast_track_round1[,c(1,8,2,3,4,5,6,7)]
+  fast_track_round2 <- fast_track_round2[,c(1,8,2,3,4,5,6,7)]
   
   fine_tuning_round1 <- subset(fine_tuning_round1, !startsWith(TagValue2, " ;"))
   fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2, " ;"))
   
-  fine_tuning_round1 <- subset(fine_tuning_round1, select = -c(TagValue1, TagValue2, EventMs, TagDate))
-  fine_tuning_round2 <- subset(fine_tuning_round2, select = -c(TagValue1, TagValue2, EventMs, TagDate))
+  fine_tuning_round1 <- fine_tuning_round1[,c("UserId","EventTag", "label",  "BandNumber",  "UserAnswer", "IsUserCorrect")]
+  fine_tuning_round2 <- fine_tuning_round2[,c("UserId","EventTag", "label",  "BandNumber",  "UserAnswer", "IsUserCorrect")]
+  
+  fine_tuning_round1$nonwordRatioAtThisPoint <- NA
+  fine_tuning_round2$nonwordRatioAtThisPoint <- NA
   
   names(fine_tuning_round1)[names(fine_tuning_round1) == 'EventTag'] <- 'phase'
   names(fine_tuning_round2)[names(fine_tuning_round2) == 'EventTag'] <- 'phase'
   
+  fine_tuning_round1$Run <- 1
+  fine_tuning_round2$Run <- 2
+  
+  fine_tuning_round1 <- fine_tuning_round1[,c(1,8,2,3,4,5,6,7)]
+  fine_tuning_round2 <- fine_tuning_round2[,c(1,8,2,3,4,5,6,7)]
+  
+  fast_track_round1[] <- lapply(fast_track_round1, as.character)
+  fine_tuning_round1[] <- lapply(fine_tuning_round1, as.character)
+  
+  fast_track_round2[] <- lapply(fast_track_round2, as.character)
+  fine_tuning_round2[] <- lapply(fine_tuning_round2, as.character)
+  
+  item_data_r1 <- rbind(fast_track_round1, fine_tuning_round1)
+  item_data_r1$phase <- paste0(item_data_r1$phase,"_1")
+  
+  item_data_r2 <- rbind(fast_track_round2, fine_tuning_round2)
+  item_data_r2$phase <- paste0(item_data_r2$phase,"_2")
+  
+  # Join concatenated item data to rating button data to get fine grained 
+  # timestamps in miliseconds
+  rating_buttons_r1 <- subset(rating_buttons, UserId == user)
+  rating_buttons_r1[] <- lapply(rating_buttons_r1, as.character)
+  combined_r1 <- left_join(item_data_r1, 
+                               rating_buttons_r1[,c("UserId", "label", "UserAnswer", "TagDate", "EventMs")], 
+                               by = c("UserId", "label", "UserAnswer"))
+ 
+  
+  rating_buttons_r2 <- subset(rating_buttons, UserId == user)
+  
+  rating_buttons_r2[] <- lapply(rating_buttons_r2, as.character)
+  combined_r2 <- left_join(item_data_r2, 
+                           rating_buttons_r2[,c("UserId", "label", "UserAnswer", "TagDate", "EventMs")], 
+                           by = c("UserId", "label", "UserAnswer"))
+  
+ 
+  # Calculate item durations
+  combined_r1$duration <- c(combined_r1$EventMs[1], as.numeric(combined_r1$EventMs[2:nrow(combined_r1)]) - as.numeric(combined_r1$EventMs[1:nrow(combined_r1)-1]))
+  combined_r2$duration <- c(combined_r2$EventMs[1], as.numeric(combined_r2$EventMs[2:nrow(combined_r2)]) - as.numeric(combined_r2$EventMs[1:nrow(combined_r2)-1]))
   
   
-  new_user_responses_r1 <- fast_track_round1
-  new_user_responses_r1 <- rbind(new_user_responses_r1, fine_tuning_round1)
-  new_user_responses_r1$phase <- paste0(new_user_responses_r1$phase,"_1")
+  item_data <- rbind(item_data, combined_r1)
+  item_data <- rbind(item_data, combined_r2)
   
-  new_user_responses_r2 <- fast_track_round2
-  new_user_responses_r2 <- rbind(new_user_responses_r2, fine_tuning_round2)
-  new_user_responses_r2$phase <- paste0(new_user_responses_r2$phase,"_2")
-  
-  user_responses <- rbind(user_responses, new_user_responses_r1)
-  user_responses <- rbind(user_responses, new_user_responses_r2)
+ 
 }
+
 
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
-write.csv(user_responses, file=paste0(experiment_abr,".item_data.csv"))
+item_data$WordOrNonword <- ifelse (item_data$BandNumber == -1, "nonword", "word")
+
+item_data <- item_data[, c(1,2,3,4,12,5,6,7,8,9,10, 11)]
+
+write.csv(item_data, file=paste0(experiment_abr,".item_data.csv"))
 
 ##--Get oscillations for each user only followed by an error------------------##
 
 
 # Olha: output presentation correction
 user_scores  <- data.frame()
-user_responses <- data.frame()
+
 
 for (rawUUID in participants_uuids$V1)  {
   
@@ -335,9 +400,8 @@ for (rawUUID in participants_uuids$V1)  {
                            TagValue1 == "row000001")
   
   ## Skip users that have no summary or that have a summary for only one round
-  if (!nrow(user_summary) || nrow(user_summary) == 1){
-    next
-  }
+  #if (!nrow(user_summary) || nrow(user_summary) == 1){
+  #}
   user_summary_r1 <- user_summary[1,]
   user_summary_r2 <- user_summary[2,]
   
@@ -346,8 +410,6 @@ for (rawUUID in participants_uuids$V1)  {
   user_summary_r2 <- lapply(strsplit(user_summary_r2$TagValue2,";"), 
                             function(x) x)
   user_score_r1 <- user_summary_r1[[1]][1]
-  # Olha: commented out the duplicated row
-  # user_score_r1 <- user_summary_r1[[1]][1]
   BestFastTrack_r1	<- user_summary_r1[[1]][2]
   Cycle2oscillation_r1	<- user_summary_r1[[1]][3]
   EnoughFineTuningStimuli_r1 <- user_summary_r1[[1]][4]
@@ -355,8 +417,6 @@ for (rawUUID in participants_uuids$V1)  {
   Loser_r1 <- user_summary_r1[[1]][5]
   
   user_score_r2 <- user_summary_r2[[1]][1]
-  # Olha: commented out the duplicated row
-  # user_score_r2 <- user_summary_r2[[1]][1]
   BestFastTrack_r2	<- user_summary_r2[[1]][2]
   Cycle2oscillation_r2	<- user_summary_r2[[1]][3]
   EnoughFineTuningStimuli_r2 <- user_summary_r2[[1]][4]
@@ -375,7 +435,7 @@ for (rawUUID in participants_uuids$V1)  {
   fine_tuning_round2 <- subset(fine_tuning_round2, !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
   
   #Olha: commenting out apparently redundant operation
-  #fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
+  # fine_tuning_1user <- fine_tuning_1user[order(fine_tuning_1user[,4]), ]
   
   raw_bandnumbers_r1 <- fine_tuning_round1[,c("BandNumber", "IsUserCorrect")]
   raw_bandnumbers_r2 <- fine_tuning_round2[,c("BandNumber", "IsUserCorrect")]
@@ -386,10 +446,20 @@ for (rawUUID in participants_uuids$V1)  {
   # bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1)
   # bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2)
   
-  # Olha (!): reduce_to_single gets now "fine_tuning_roundX" as a parameter
+  # preparing data for reduce_to_single (they are needed to treat special case "pain-in_ass" for that function)
+  fast_track_1user <- subset(fast_track, UserId == user)
+  fast_track_rounds <- split_rounds(fast_track_1user)
+  
+  fast_track_round1 <- fast_track_rounds[["round1"]]
+  fast_track_round2 <- fast_track_rounds[["round2"]]
+  
+  fast_track_round1 <- subset(fast_track_round1, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;") )
+  fast_track_round2 <- subset(fast_track_round2, !startsWith(TagValue2,"Label;BandNumber;UserAnswer;IsAnswerCorrect;"))
+  # Olha (!): reduce_to_single gets now "fast_track_round1X" as a parameter
   # since it is used in one of the branches (see the comment in the code for this function)
-  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1, fine_tuning_round1, add_isUserCorrect = TRUE)
-  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2, fine_tuning_round2, add_isUserCorrect = TRUE)
+  
+  bandnumbers_r1 <- reduce_to_single(raw_bandnumbers_r1, fast_track_round1, add_isUserCorrect = TRUE)
+  bandnumbers_r2 <- reduce_to_single(raw_bandnumbers_r2, fast_track_round2, add_isUserCorrect = TRUE)
   
   #two_oscillations_output_r1 <- get_two_oscillations(bandnumbers_r1)
   two_oscillations_output_r1 <- get_two_oscillations_with_error(bandnumbers_r1)

@@ -20,8 +20,8 @@ max_length_forward <- 8
 
 # read stimuli from the csv file
 
-stimuli_csv_forward <- read.table("Digitspan_stimuli_forward.csv",  header=TRUE, sep=";")
-stimuli_csv_backward <- read.table("Digitspan_stimuli_backward.csv",  header=TRUE, sep=";")
+stimuli_csv_forward <- read.csv("Digitspan_stimuli_forward.csv",  header=TRUE, sep=";", fileEncoding = "UTF-8-BOM")
+stimuli_csv_backward <- read.csv("Digitspan_stimuli_backward.csv",  header=TRUE, sep=";", fileEncoding = "UTF-8-BOM")
 
 ##--Configuration-------------------------------------------------------------##
 
@@ -53,19 +53,15 @@ req_auth <- httr::POST(login_url, body = auth_body)
 
 ##--Main----------------------------------------------------------------------##
 
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE)
+participants_uuids <- read.csv("../shared/participants.csv", header = FALSE,  sep=",", fileEncoding = "UTF-8-BOM")
+# participants_columns <- c("userId", "staleCopy", "submitDate")
+# participants <- get_embedded("participants", participants_columns, admin_url)
+# participants_data <- subset(participants[["currentData"]],   staleCopy == FALSE)
 
-participants_columns <- c("userId", "staleCopy", "submitDate")
-
-participants <- get_embedded("participants", participants_columns, admin_url)
-
-participants_data <- subset(participants[["currentData"]], 
-                            staleCopy == FALSE)
-
+# we need tag =pair event because we need event timing info
 tagpairevents_columns <- c("userId", "tagDate", "eventTag",  "tagValue1", "tagValue2")
 tagpairevents <- get_embedded("tagpairevents", tagpairevents_columns, admin_url, 1000)
-
-tagpairevents_data <- unique(tagpairevents[["currentData"]])
+tagpairevents_data <- tagpairevents[["currentData"]]
 
 screenviews_columns <- c("userId", "screenName", "viewDate")
 screenviews <- get_embedded("screenviews", screenviews_columns, admin_url)
@@ -73,6 +69,12 @@ screenviews_data <- unique(subset(screenviews[["currentData"]]))
 
 eventsForward = subset(tagpairevents_data, !grepl("summary", eventTag) & eventTag !="DataSubmission" &  (eventTag!="StimulusAudioShown") & grepl("forward", tagValue1) )
 eventsBackward = subset(tagpairevents_data, !grepl("summary", eventTag) & eventTag !="DataSubmission" & (eventTag!="StimulusAudioShown") & grepl("backward", tagValue1) )
+
+
+user_scores <- data.frame()
+user_responses <- data.frame()
+
+users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
 
 
 ## help function 
@@ -87,13 +89,31 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
     
     user <- paste0("uuid-", rawUUID)
     print(user)
-    print("Num events for user:")
     
-    events <- subset(experimentEvents, userId == user)
-   
-    print(nrow(events))
+    rawEvents <- subset(experimentEvents, userId == user)
+    events <- data.frame()
+    events <- rbind(events, rawEvents[1,])
+    # controlling duplicated events
+    for (i in 2:nrow(rawEvents)) {
+      isAlHere <- FALSE
+      for (j in 1:nrow(events)) {
+        if ((rawEvents[i,]$eventTag == events[j,]$eventTag) && (rawEvents[i,]$tagValue1 == events[j,]$tagValue1)) {
+          if ((rawEvents[i,]$eventTag != "freeText") || ((rawEvents[i,]$eventTag == "freeText") && rawEvents[i,]$tagValue2 == events[j,]$tagValue2)){
+            users_multiple_submission <- add_row(users_multiple_submission, userId = user,
+                                                 reason=paste0(rawEvents[i,]$eventTag, "with the value ", rawEvents[i,]$tagValue1),
+                                                 details = "the latest of the dulicated will be considered")
+            isAlHere <- TRUE
+            if (as.Date(rawEvents[i,]$tagDate) > as.Date(events[j,]$tagDate)) {
+              events[j,] <- rawEvents[i,]
+            }
+          }
+        }
+      }
+      if (!isAlHere) {
+        events <- rbind(events, rawEvents[i,])
+      }
+    }
     
-  
     new_user_response <- events
     # replace "logTimeStamp" tag with with actual submit date-time of this tag
     new_user_response <- new_user_response %>%
@@ -144,7 +164,7 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
       currentStimulusSequence <- new_user_response[i,]$stimulusSequence
       
       
-      if (band_stimuli_conter == n_stimuli_per_length) {
+      if (band_stimuli_conter == n_stimuli_per_length) { # we are entering the next band
         
         if (band_error_counter + band_correct_counter != n_stimuli_per_length) {
           print("Sanity error: the sum of band error counter and and correct counter does not equal to the given number of stimuli per band (length) ")
@@ -186,6 +206,7 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
         } else {
           band_correct_counter <- band_correct_counter + 1
           correct_counter <- correct_counter + 1
+          l <- nchar(currentStimulusSequence) # memoise the length of the last correct stimulus
         }
       } else {
         if (new_user_response[i,]$isUserCorrect != "incorrect") {
@@ -200,8 +221,6 @@ harvest_scores <- function(listUuids, experimentEvents, roundname, startScreenNa
         }
       }
     } 
-    
-    # on finishingthe loop l will have the length of the last shown stimulus
     
     user_responses <- rbind(user_responses, new_user_response)
     
@@ -278,16 +297,15 @@ results_backward <- harvest_scores(participants_uuids$V1, eventsBackward, "backw
 user_scores_backward <- results_backward$user_scores
 user_responses_backward <- results_backward$user_responses
 
-# write.csv(user_scores_forward, file=paste0(experiment_abr,".forward.user_scores.csv"))
-# write.csv(user_scores_backward, file=paste0(experiment_abr,".backward.user_scores.csv"))
+write.csv(user_responses_forward, file=paste0(experiment_abr,".forward.user_item_data.csv"))
+write.csv(user_responses_backward, file=paste0(experiment_abr,".backward.user_item_data.csv"))
 
 user_scores <- merge(user_scores_forward, user_scores_backward)
 user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCorrect)
 user_scores$totalIncorrect <- (user_scores$forwardIncorrect + user_scores$backwardIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
-# user_responses_forward[] <- lapply(user_responses_forward, as.character)
-#  Change values for IsUserCorrect from true/false to 1/0
-# user_responses_forward$isUserCorrect <- ifelse(user_responses_forward$isUserCorrect == "correct", 1, 0)
-
-# write.csv(user_responses_forward, file=paste0(experiment_abr,".forward.item_data.csv"))
+if (nrow(users_multiple_submission)==0){
+  users_multiple_submission <- add_row(users_multiple_submission, userId=" ", reason ="no duplications found", details=" ")
+}
+write.csv(users_multiple_submission, file=paste0(experiment_abr,".duplicated_records.csv"))

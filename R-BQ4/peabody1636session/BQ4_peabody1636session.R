@@ -19,7 +19,7 @@ base_max_admissible_errors <- 4
 
 
 # read stimuli from the csv file
-stimuli_csv <- read.table("stimuli.csv",  header=TRUE, sep=";")
+stimuli_csv <- read.csv("stimuli.csv",  header=TRUE, sep=";", fileEncoding = "UTF-8-BOM")
 
 
 
@@ -34,8 +34,8 @@ user_birthday_url= "https://www.mpi.nl/dbmpi/plone/bigQuestion/nph-bq_show_birth
 
 admin_url <- paste(server_url, "/", experiment_abr, "-admin", sep = "")
 
-peabody_dat = read.csv("Peabody.scores.csv", header = TRUE)
-peabody_percent = read.csv("Peabody.percentiles.csv", header = TRUE)
+peabody_dat = read.csv("Peabody.scores.csv", header = TRUE, sep=",", fileEncoding = "UTF-8-BOM")
+peabody_percent = read.csv("Peabody.percentiles.csv", header = TRUE, sep=",",  fileEncoding = "UTF-8-BOM")
 
 
 ##--Authentication------------------------------------------------------------##
@@ -56,7 +56,7 @@ req_auth <- httr::POST(login_url, body = auth_body)
 
 ##--Main----------------------------------------------------------------------##
 
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE)
+participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep=",", fileEncoding = "UTF-8-BOM")
 
 participants_columns <- c("userId", "workerId", "staleCopy", "submitDate")
 
@@ -85,13 +85,13 @@ stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]], !is.
 
 user_scores <- data.frame()
 
+
 for (rawUUID in participants_uuids$V1){
   
   user <- paste0("uuid-", rawUUID)
   print(user)
   
-  stimulusresponses_user <- subset(stimulusresponses_data, userId==user)
-  stimulusresponses_user <- stimulusresponses_user[order(stimulusresponses_user$tagDate), ]
+  stimulusresponses_user_raw <- subset(stimulusresponses_data, userId==user)
   
   band <- start_band
   picture_counter <- 0
@@ -100,6 +100,29 @@ for (rawUUID in participants_uuids$V1){
   n_correct <-0
   n_correct_current_band <-0
   base <- TRUE
+  
+  # filtering duplications of the stimuli response submissions
+  stimulusresponses_user <- stimulusresponses_user_raw[1,]
+  for (i in 2:nrow(stimulusresponses_user_raw)) {
+    isAlHere <- FALSE
+    for (j in 1:nrow(stimulusresponses_user)) {
+      if (stimulusresponses_user_raw[i,]$stimulusId == stimulusresponses_user[j,]$stimulusId) {
+        if(stimulusresponses_user_raw[i,]$response != stimulusresponses_user[j,]$response) {
+          print("Erronenous multiple submission for the stimulus")
+          print(stimulusresponses_user[j,]$response)
+          stop()
+        } else {
+          isAlHere <- TRUE
+          break
+        }
+      }
+    }
+    if (!isAlHere) {
+      stimulusresponses_user <- rbind(stimulusresponses_user, stimulusresponses_user_raw[i,])
+    }
+  }
+  stimulusresponses_user <- stimulusresponses_user[order(stimulusresponses_user$tagDate), ]
+  
   
   for (i in 1:nrow(stimulusresponses_user)) {
     
@@ -224,6 +247,29 @@ for (rawUUID in participants_uuids$V1){
                           eventTag == "summary" & 
                             substring(tagValue2, 1, 11) == "totalErrors")
   
+  if (nrow(summary_1user)>1) {
+    for (i in 2:nrow(summary_1user_score)){
+      if (summary_1user[1,]$tagValue2 != summary_1user[i,]$tagValue2) {
+        print("detected erroenous multiple error submission for this user")
+        stop()
+      }
+    }
+  }
+  
+  summary_1user_score <- subset(tagpairevents_data, 
+                          userId == user &
+                            eventTag == "summary" & 
+                            startsWith(tagValue2,"totalScore"))
+  
+  if (nrow(summary_1user_score)>1) {
+    for (i in 2:nrow(summary_1user_score)){
+      if (summary_1user_score[1,]$tagValue2 != summary_1user_score[i,]$tagValue2) {
+        print("detected erroneous multiple score submission for this user")
+        stop()
+      }
+    }
+  }
+  
   
   # Get start and end of experiment from screenViews
   start_date <- max(subset(screenviews_data, 
@@ -256,8 +302,8 @@ for (rawUUID in participants_uuids$V1){
   print(paste0("highest stim nr: ",as.character(highest_stimulus_nr)))
   
   # Get total number of errors from summary
-  totalErrors <- as.numeric(substring(summary_1user$tagValue2,
-                                      nchar(summary_1user$tagValue2)-2+1))
+  totalErrors <- as.numeric(substring(summary_1user[1,]$tagValue2,
+                                      nchar(summary_1user[1,]$tagValue2)-2+1))
   
   totalErrors_manual <- nrow(subset(stimulusresponses_user, isCorrect == FALSE))
   
@@ -282,7 +328,11 @@ for (rawUUID in participants_uuids$V1){
   #print(raw_score)
   
   # Calculate age from date of birth and test date
-  dateOfBirthRaw  <-  get_birthday(rawUUID, user_birthday_url)
+  rawUUID_no_round <- rawUUID
+  if (endsWith(rawUUID, "_2") || endsWith(rawUUID, "_3")) {
+    rawUUID_no_round <-  substr(rawUUID, 1, nchar(rawUUID)-2)
+  }
+  dateOfBirthRaw  <-  get_birthday(rawUUID_no_round, user_birthday_url)
   dateOfBirth <- as.Date(dateOfBirthRaw, format = "%Y-%m-%d")
   
   participant <- unique(subset(participants_data,  userId == user))
@@ -349,6 +399,7 @@ for (rawUUID in participants_uuids$V1){
                                 totalErrors, totalErrors_manual,
                                 raw_score, age_half_rounded, peabody_score, 
                                 percentile, testDuration)
+  
   names(new_user_scores) <- c("userId", 
                               "Highest Stimulus Number",
                               "Total Errors",
@@ -360,6 +411,12 @@ for (rawUUID in participants_uuids$V1){
                               "Test Duration (mins)")
   user_scores <- rbind(user_scores, new_user_scores)
   
+}
+
+if (nrow(participants_uuids) != nrow(user_scores)) {
+  print("(!)Something went not ok, the number of user uuid's differs from the number of the orws in the score table")
+  print(nrow(participants_uuids))
+  print(nrow(user_scores))
 }
 
 # Write scores to file

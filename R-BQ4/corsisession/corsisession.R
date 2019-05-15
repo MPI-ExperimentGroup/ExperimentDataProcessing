@@ -49,6 +49,10 @@ stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "is
 stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
 stimulusresponses_data <- stimulusresponses[["currentData"]]
 
+responsesForwardCheck <- subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(isCorrect) )
+responsesBackwardCheck <-subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(isCorrect) )
+
+
 participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep=",", fileEncoding = "UTF-8-BOM")
 
 screenviews_columns <- c("userId", "screenName", "viewDate")
@@ -62,10 +66,10 @@ responsesPracticeBackward <- unique(subset(stimulusresponses_data,  screenName==
 responsesForward <- unique(subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(response) &  is.na(isCorrect)))
 responsesBackward <- unique(subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(response) & is.na(isCorrect)))
 
-responsesForwardCheck <- subset(stimulusresponses_data, screenName=="RunTrialsForward" & !is.na(isCorrect))
-responsesBackwardCheck <-subset(stimulusresponses_data,  screenName=="RunTrialsBackward" & !is.na(isCorrect))
 
 users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
+
+
 
 
 ## help function 
@@ -79,31 +83,34 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
     
     user <- paste0("uuid-", rawUUID)
+    print("******")               
     print(user)
-    print("Num events for user:")
     
     raw_user_responses <- subset(responses, userId == user)
-    
-    raw_user_responses_noduplicates <- data.frame()
-    raw_user_responses_noduplicates <- rbind(raw_user_responses_noduplicates, raw_user_responses[1,])
-    WRONG
-    # controlling duplicated events
+    raw_user_responses_nomultiples <- raw_user_responses[1,]
+    # controlling multiple responses
     for (i in 2:nrow(raw_user_responses)) {
       isAlHere <- FALSE
-      for (j in 1:nrow(raw_user_responses_noduplicates)) {
-        if ((raw_user_responses[i,]$stimulusId == raw_user_responses_noduplicates[j,]$stimulusId) && (raw_user_responses[i,]$response == raw_user_responses_noduplicates[j,]$response)) {
-           users_multiple_submission <- add_row(users_multiple_submission, userId = user,
-                                                 reason = paste0(raw_user_responses_noduplicates[j,]$stimulusId, "with the response ", raw_user_responses_noduplicates[j,]$response, "time ", raw_user_responses_noduplicates[j,]$tagDate),
-                                                 details = "the latest of the duplicated will be considered")
+      for (j in 1:nrow(raw_user_responses_nomultiples)) {
+        if (raw_user_responses[i,]$stimulusId == raw_user_responses_nomultiples[j,]$stimulusId) {
+          if (raw_user_responses[i,]$response == raw_user_responses_nomultiples[j,]$response) {
+            # duplicated submission of the same response (the system is double-secure in the case of broken i-net connection)
             isAlHere <- TRUE
-            if (raw_user_responses[i,]$tagDate > raw_user_responses_noduplicates[j,]$tagDate) {
-              raw_user_responses_noduplicates[j,] <- raw_user_responses[i,]
-          
+          } else {
+            if (nchar(raw_user_responses[i,]$response) == nchar(raw_user_responses_nomultiples[j,]$response)) {
+              users_multiple_submission <- add_row(users_multiple_submission, userId = user,
+                                                   reason = paste0(raw_user_responses[i,]$stimulusId, " with the responses ", raw_user_responses[i,]$response, " and ", raw_user_responses_nomultiples[j,]$response),
+                                                   details = "the latest of the submitted will be considered")
+              isAlHere <- TRUE
+              if (raw_user_responses[i,]$tagDate > raw_user_responses_nomultiples[j,]$tagDate) {
+                raw_user_responses_nomultiples[j,] <- raw_user_responses[i,]
+              }
+            }
           }
         }
       }
       if (!isAlHere) {
-        raw_user_responses_noduplicates <- rbind(raw_user_responses_noduplicates, raw_user_responses[i,])
+        raw_user_responses_nomultiples <- rbind(raw_user_responses_nomultiples, raw_user_responses[i,])
       }
     }
    
@@ -112,7 +119,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
     for (stimulusID in unique(raw_user_responses$stimulusId)) {
       
-       new_user_stimulus_response <- subset(raw_user_responses_noduplicates, stimulusId == stimulusID)
+       new_user_stimulus_response <- subset(raw_user_responses_nomultiples, stimulusId == stimulusID)
       
         # adding column representing stimulus sequence length
        if (grepl("Practice", stimulusID)) {
@@ -157,7 +164,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
        
        # check up for main rounds for a pair user-stimulus
        if (!grepl("Practice", stimulusID)) {
-         checkResponseRow <- subset(checkResponses, userId==user & stimulusId == stimulusID & nchar(response)==max_resp_length)
+         checkResponseRow <- subset(checkResponses, userId==user & stimulusId == stimulusID & nchar(response) == max_resp_length)
          checkResp <- checkResponseRow[1,]$isCorrect
          if ((checkResp == TRUE && new_user_stimulus_response$isCorrect==0) || (checkResp == FALSE && new_user_stimulus_response$isCorrect==1)) {
            print("Check up fail for response, stimulus:")
@@ -187,7 +194,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
       nStimuli <- n_stimuli_per_length * n_bands
     }
     if (n_correct + n_incorrect > nStimuli) {
-      print("Sanity error: the sun of correctly and incorrectly answered stimuli is great than the overall possible amount of stimuli for this part")
+      print("Sanity error: the sum of correctly and incorrectly answered stimuli is great than the overall possible amount of stimuli for this part")
       print(n_correct)
       print(n_incorrect)
       print(nStimuli)
@@ -372,4 +379,9 @@ user_scores$totalCorrect <- (user_scores$forwardCorrect + user_scores$backwardCo
 user_scores$totalIncorrect <- (user_scores$forwardIncorrect + user_scores$backwardIncorrect)
 write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
+if (nrow(users_multiple_submission) == 0) {
+  users_multiple_submission <- add_row(users_multiple_submission, userId = " ",
+                                       reason = "no multiple response on the same stimulus were detected",
+                                       details = " ")
+}
 write.csv(users_multiple_submission, file=paste0(experiment_abr,".duplicated_records.csv"))

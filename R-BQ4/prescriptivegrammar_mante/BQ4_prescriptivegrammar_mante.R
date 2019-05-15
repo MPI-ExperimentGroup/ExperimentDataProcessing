@@ -4,7 +4,7 @@ library(jsonlite)
 library(httr)
 library(dplyr)
 library(tidyr)
-source("shared/BQ4_supportFunctions.R")
+source("../shared/BQ4_supportFunctions.R")
 
 ##--Configuration-------------------------------------------------------------##
 
@@ -20,7 +20,7 @@ users_to_skip <- 0
 
 ## Read username/password from file and authenticate on Admin interface
 
-auth_values <- read.table(paste("login.", experiment_abr, ".csv", sep = ""), 
+auth_values <- read.table(paste("../login.", experiment_abr, ".csv", sep = ""), 
                           stringsAsFactors = FALSE)
 
 auth_body <-

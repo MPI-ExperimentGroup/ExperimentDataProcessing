@@ -62,7 +62,7 @@ stimulusresponses_data$isCorrect <- ifelse(stimulusresponses_data$isCorrect == T
 
 ##--Pre-process fast track and finetuning-------------------------------------##
 
-fast_track <- subset(tagpairevents_data, eventTag == "fast_track" &   tagValue2 != " ; ; ; ; ; ;" & tagValue1 != "row000000")
+fast_track <- subset(tagpairevents_data, eventTag == "fast_track" &   tagValue2 != " ; ; ; ; ; ;" & !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
 
 
 fast_track$label <- lapply(strsplit(fast_track$tagValue2,";"), 
@@ -89,7 +89,7 @@ fast_track$IsUserCorrect <- ifelse(fast_track$IsUserCorrect == "true", 1, 0)
 
 
 
-fine_tuning <- subset(tagpairevents_data, eventTag == "fine_tuning"  &   tagValue2 != " ; ; ; ; ; ;"  & tagValue1 != "row000000")
+fine_tuning <- subset(tagpairevents_data, eventTag == "fine_tuning"  &   tagValue2 != " ; ; ; ; ; ;"  & !startsWith(TagValue2,"BandNumber;Label;UserAnswer;IsAnswerCorrect;"))
 
 fine_tuning$label <- lapply(strsplit(fine_tuning$tagValue2,";"), 
                             function(x) x[1])

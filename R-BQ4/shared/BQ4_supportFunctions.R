@@ -18,7 +18,7 @@ contains_prescriptivegrammar <- function(data_table, record) {
         return(i)
       }
     }
- 
+    
   }
   return(-1)
 }
@@ -30,12 +30,12 @@ contains_questhealth <- function(data_table, record) {
   for (i in 1:nrow(data_table)) {
     row <- data_table[i,]
     if (row["tagValue1"] ==  record["tagValue1"]) {
-        return(i)
-      }
+      return(i)
+    }
   }
   return(-1)
 }
-        
+
 keep_latest <- function(data_table, contains_instance) {
   if (nrow(data_table) == 0) {
     return(data_table)
@@ -230,7 +230,7 @@ get_two_oscillations_with_error <- function(bandnumbers){
            !(previous == bandnumbers[i-3] && previous == bandnumbers[i-5] &&
              bandnr == bandnumbers[i-2] && bandnr == bandnumbers[i-4] &&
              bandnumbers[i-1,2] == "false")
-           ))
+         ))
          #) #|
          # Check for oscillations with bands consisting of a single -1 band
          #(bandnr == bandnumbers[i-1] & bandnr == bandnumbers[i-3])
