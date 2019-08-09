@@ -43,41 +43,11 @@ req_auth <- httr::POST(login_url, body = auth_body)
 
 ##--Main----------------------------------------------------------------------##
 
-
-stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
-stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
-stimulusresponses_data <- unique(stimulusresponses[["currentData"]])
-
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep=",", fileEncoding="UTF-8-BOM")
-
-screenviews_columns <- c("userId", "screenName", "viewDate")
-screenviews <- get_embedded("screenviews", screenviews_columns, admin_url)
-screenviews_data <- unique(subset(screenviews[["currentData"]]))
-
-tagpairevents_columns <- c("userId", "tagDate", "eventTag", 
+participants_uuids <- read.csv("../../participants.txt", header = FALSE, sep =';',  fileEncoding="UTF-8-BOM")
+tagpairevents_columns <- c("userId", "screenName", "eventTag", "tagDate",
                            "tagValue1", "tagValue2")
-tagpairevents <- get_embedded("tagpairevents", tagpairevents_columns, admin_url, 1000)
-tagpairevents_data <- unique(tagpairevents[["currentData"]])
-
-
-responsesPractice <- subset(stimulusresponses_data, screenName=="stimuliScreenRavenPractice" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0)
-responsesMain <- subset(stimulusresponses_data, screenName=="stimuliScreenRavenTest" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0)
-
-timeOutEvents <- subset(tagpairevents_data, tagValue1=="timeOut")
-scoreEvents <- subset(tagpairevents_data, eventTag=="summary" & tagValue1!="timeOut")
-
-# help list to create pairs stimuli ID <-> code 
-shownEvents <- subset(tagpairevents_data, eventTag=="StimulusCodeImageShown") 
-codeColumns <- c("tagValue1", "tagValue2")
-stimuliId_Code <- unique(shownEvents[codeColumns])
-l_prefix <- nchar("stimuli/")
-l_ending <- nchar(".png")
-stimuliId_Code$tagValue2 <- substr(stimuliId_Code$tagValue2, l_prefix+1, nchar(stimuliId_Code$tagValue2)-l_ending)
-names(stimuliId_Code)[names(stimuliId_Code)=="tagValue1"] <- "stimulusId"
-names(stimuliId_Code)[names(stimuliId_Code)=="tagValue2"] <- "code"
-
-responsesPractice <- left_join(responsesPractice, stimuliId_Code, by="stimulusId")
-responsesMain <- left_join(responsesMain, stimuliId_Code, by="stimulusId")
+screenviews_columns <- c("userId", "screenName", "submitDate", "viewDate")
+stimulusresponses_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate", "eventMs")
 
 l_ending_2 <- nchar(".gif")
 stimuli_origin_practice$Picture <- as.character(stimuli_origin_practice$Picture)
@@ -86,15 +56,20 @@ stimuli_origin_practice$Picture <- substr(stimuli_origin_practice$Picture, 1, nc
 stimuli_origin_main$Picture <- substr(stimuli_origin_main$Picture, 1, nchar(stimuli_origin_main$Picture)-l_ending_2)
 
 
-users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
+
+
+###--Process responses and aggregate scores----------------------------------###
+
 
 
 ## help function 
 
-harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName, nStimuli, timeOuts, frinexScores, originStimuli) {
+harvest_scores <- function(listUuids, roundname, startScreenName, endScreenName, nStimuli, originStimuli) {
   
   user_scores <- data.frame()
   user_responses <- data.frame()
+  users_irregularities <- data.frame(userId=character(), message=character())
+  stimuliId_Code <- NULL
   
   for (rawUUID in listUuids){
     
@@ -103,43 +78,80 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     print("******")
     print(user)
     
-    raw_user_responses <- subset(responses, userId == user)
-    raw_user_responses <- raw_user_responses[order(raw_user_responses$tagDate),]
+    stimulusresponses_user_raw <- findByUserIdOrderByTagDateAsc(admin_url, user, "stimulusresponses", "findByUserIdOrderByTagDateAsc", stimulusresponses_columns)
+    
+    if (is.null(stimulusresponses_user_raw)) {
+      message <- "No stimulusresponses record for this user"
+      users_irregularities <-  add_row(users_irregularities, userId=user, message = message)
+      next
+    }
+    
+    if (roundname == "practice") {
+      responses <- subset(stimulusresponses_user_raw, screenName=="stimuliScreenRavenPractice" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0)
+      
+    } 
+    
+    if (roundname == "main") {
+      responses<- subset(stimulusresponses_user_raw, screenName=="stimuliScreenRavenTest" & !is.na(isCorrect) & nchar(str_trim(isCorrect))>0)
+    }
+    
+    
+    
+    events <- findByUserIdOrderByTagDateAsc(admin_url, user, "tagpairevents", "findByUserIdOrderByTagDateAsc", tagpairevents_columns)
+    timeOutEvents <- subset(events, tagValue1=="timeOut")
+    scoreEvents <- subset(events, eventTag=="summary" & tagValue1!="timeOut")
+    
+    # help list to create pairs stimuli ID <-> code 
+    if (is.null(stimuliId_Code)) {
+      shownEvents <- subset(events, eventTag=="StimulusCodeImageShown") 
+      codeColumns <- c("tagValue1", "tagValue2")
+      stimuliId_Code <- unique(shownEvents[codeColumns])
+      l_prefix <- nchar("stimuli/")
+      l_ending <- nchar(".png")
+      stimuliId_Code$tagValue2 <- substr(stimuliId_Code$tagValue2, l_prefix+1, nchar(stimuliId_Code$tagValue2)-l_ending)
+      names(stimuliId_Code)[names(stimuliId_Code)=="tagValue1"] <- "stimulusId"
+      names(stimuliId_Code)[names(stimuliId_Code)=="tagValue2"] <- "code"
+    }
+    responses <- left_join(responses, stimuliId_Code, by="stimulusId")
+    
+    
     
     # filtering multiple answers
-    new_user_responses <- raw_user_responses[1,]
-    for (i in 2:nrow(raw_user_responses)) {
+    new_user_responses <- responses[1,]
+    for (i in 2:nrow(responses)) {
       isAlHere <- FALSE
       for (j in 1:nrow(new_user_responses)) {
-        if (raw_user_responses[i,]$stimulusId == new_user_responses[j,]$stimulusId) {
-          if (raw_user_responses[i,]$response == new_user_responses[j,]$response) {
+        if (responses[i,]$stimulusId == new_user_responses[j,]$stimulusId) {
+          if (responses[i,]$response == new_user_responses[j,]$response) {
             # duplicated submission of the same response (the system is double-secure in the case of broken i-net connection)
             isAlHere <- TRUE
           } else {
             if (new_user_responses[j,]$response != "Overslaan")  {
-              users_multiple_submission <- add_row(users_multiple_submission, userId = user,
-                                                   reason = paste0(raw_user_responses[i,]$stimulusId, " with the responses ", raw_user_responses[i,]$response, " and ",  new_user_responses[j,]$response),
-                                                   details = "the latest of the submitted will be considered")
+              message <- paste("Duplicated submission for ", responses[i,]$stimulusId, "with the responses", 
+                               responses[i,]$response, 'and' ,  new_user_responses[j,]$response,
+                               "the latest of the submitted will be considered", sep=" ")
+              users_irregularities <- add_row(users_irregularities, userId = user,message = message)
               isAlHere <- TRUE
-              if (raw_user_responses[i,]$tagDate > new_user_responses[j,]$tagDate) {
-                new_user_responses[j,] <- raw_user_responses[i,]
+              if (responses[i,]$tagDate > new_user_responses[j,]$tagDate) {
+                new_user_responses[j,] <- responses[i,]
               }
             }
           }
         }
       }
       if (!isAlHere) {
-        new_user_responses <- rbind(new_user_responses, raw_user_responses[i,])
+        new_user_responses <- rbind(new_user_responses, responses[i,])
       }
     }
     
     new_user_responses <- new_user_responses[order(new_user_responses$tagDate),]
     
+   
+    
     overslaans <- list()
     j <- 1
     m <- min(nStimuli, nrow(new_user_responses)) # in case of time out there may be less user responses than actual stimuli 
     for (i in 1:m) {
-     
       if (new_user_responses[i,]$code != originStimuli[j,]$Picture) {
         print("Error in the sequence of stimuli, there is stimulus shown:")
         print(new_user_responses[i,]$code)
@@ -223,25 +235,25 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
   
     # Get test duration for participant from screenviews
-    screenviews_1user <- subset(screenviews_info, userId == user)
+    screenviews_1user <- findByUserIdOrderByTagDateAsc(admin_url, user, "screenviews", "findByUserIdOrderByViewDateAsc", screenviews_columns)
     
-    test_duration <- get_test_duration(screenviews_1user, 
-                                       startScreenName, nchar(startScreenName), endScreenName, TRUE)
+    test_duration <- get_duration_min_via_view_date(screenviews_1user, startScreenName, endScreenName)
     
-    startTime <- test_duration[["startTime"]]
-    endTime <- test_duration[["endTime"]]
-    testDuration <- test_duration[["testDuration"]]
+    startTime <- test_duration[["start_time_s"]]
+    endTime <- test_duration[["end_time_s"]]
+    testDurationSec <- endTime - startTime
+    testDuration <- round(testDurationSec/60,2)
     
-    print("startTime")
+    print("startTime, sec")
     print(startTime)
-    print("endTime")
+    print("endTime, sec")
     print(endTime)
     print("test duration")
-    print(paste0(as.character(testDuration), " sec"))
+    print(paste0(as.character(testDuration), " minutes"))
     
     # define timeout
     timeOut <-0
-    if (testDuration >= 1200) {
+    if (testDurationSec >= 1200) {
       timeOut <- 1
     }
    
@@ -275,9 +287,9 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
         } 
       } 
     }
-      
-      
- 
+    
+    
+    
     
     if (roundname == "practice") {
       if (as.numeric(n_correct) + as.numeric(n_incorrect) < nStimuli)  {
@@ -324,7 +336,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
     # sanity check frinex time-out
     if (roundname == "main") {
-      frinexTimeOut <- length(which(timeOuts$userId == user))
+      frinexTimeOut <- nrow(timeOutEvents)
       if (as.numeric(frinexTimeOut) != 0 && as.numeric(frinexTimeOut) !=1) {
         print("Sanity error: the user appears more than once (ornegative amount of times ??? ) in the list of timeouts")
         print("Users' time outs:")
@@ -363,7 +375,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
   }
   
-  return(list(user_responses=user_responses, user_scores=user_scores))
+  return(list(user_responses=user_responses, user_scores=user_scores, irregularities=users_irregularities))
  
   
 }
@@ -372,38 +384,38 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
 ##--Get aggregates practice ----------------------------------------------##
 
 
-results_practice <- harvest_scores(participants_uuids$V1, responsesPractice, "practice", screenviews_data, "stimuliScreenRavenPractice", "stimuliScreenRavenTest", n_stimuli_practice, timeOutEvents, scoreEvents, stimuli_origin_practice)
-user_scores_practice <- results_practice$user_scores
-user_responses_practice <- results_practice$user_responses
+results_practice <- harvest_scores(participants_uuids$V1, "practice", "stimuliScreenRavenPractice", "stimuliScreenRavenTest", n_stimuli_practice, stimuli_origin_practice)
+scores_practice <- results_practice$user_scores
+responses_practice <- results_practice$user_responses
+irregularities_practice <- results_practice$irregularities
 
-if (nrow(participants_uuids) != nrow(user_scores_practice) ) {
-  print("Practice: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
-  print(nrows(participants_uuids))
-  print(nrows(user_scores_practice))
+if (nrow(participants_uuids) != nrow(scores_practice) ) {
+  message <- paste("Practice: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:", nrows(participants_uuids), nrows(scores_practice), sep =" ")
+  irregularities_practice <- add_row(irregularities_practice, userId = user, message)
 }
+
+
+write.csv(irregularities_practice, file=paste0(experiment_abr,".practice_irregularities.csv"))
+
 
 ##--Get aggregates main ----------------------------------------------##
 
-results <- harvest_scores(participants_uuids$V1, responsesMain, "main", screenviews_data, "stimuliScreenRavenTest", "admin", n_stimuli_main, timeOutEvents, scoreEvents, stimuli_origin_main)
-user_scores <- results$user_scores
-user_responses <- results$user_responses
+results <- harvest_scores(participants_uuids$V1, "main", "stimuliScreenRavenTest", "admin", n_stimuli_main, stimuli_origin_main)
+scores <- results$user_scores
+responses <- results$user_responses
+irregularities <- results$irregularities
 
-if (nrow(participants_uuids) != nrow(user_scores) ) {
-  print("Main: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
-  print(nrows(participants_uuids))
-  print(nrows(user_scores))
+if (nrow(participants_uuids) != nrow(scores) ) {
+  message <- paste("Practice: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:", nrows(participants_uuids), nrows(scores), sep =" ")
+  irregularities <- add_row(irregularities, userId = user, message)
+  
 }
 
 
-user_scores <- merge(user_scores_practice, user_scores)
-user_scores$totalCorrect <- (user_scores$mainCorrect + user_scores_practice$practiceCorrect)
-user_scores$totalIncorrect <- (user_scores$mainIncorrect + user_scores_practice$practiceIncorrect)
-write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
+user_scores <- merge(scores_practice, scores)
+scores$totalCorrect <- (scores$mainCorrect + scores_practice$practiceCorrect)
+scores$totalIncorrect <- (scores$mainIncorrect + scores_practice$practiceIncorrect)
 
-write.csv(user_responses, file=paste0(experiment_abr,".data_items.csv"))
-
-if (nrow(users_multiple_submission)==0) {
-  users_multiple_submission <- add_row(users_multiple_submission, userId = " ", reason = "no multiple responses on the samestimuli were detected", details =" ")
-}
-write.csv(users_multiple_submission, file=paste0(experiment_abr,".multiple_responses.csv"))
-
+write.csv(scores, file=paste0(experiment_abr,".user_scores.csv"))
+write.csv(responses, file=paste0(experiment_abr,".data_items.csv"))
+write.csv(irregularities, file=paste0(experiment_abr,".irregularities.csv"))
