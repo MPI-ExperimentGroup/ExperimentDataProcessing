@@ -44,30 +44,11 @@ req_auth <- httr::POST(login_url, body = auth_body)
 
 ##--Main----------------------------------------------------------------------##
 
-participants_uuids <- read.csv("../shared/participants.csv", header = FALSE, sep=",", fileEncoding="UTF-8-BOM")
-
-
-stimulus_resp_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate")
-stimulusresponses <- get_embedded("stimulusresponses", stimulus_resp_columns, admin_url, 1000)
-stimulusresponses_data <- unique(subset(stimulusresponses[["currentData"]]))
-
-
-screenviews_columns <- c("userId", "screenName", "viewDate")
-screenviews <- get_embedded("screenviews", screenviews_columns, admin_url)
-screenviews_data <- unique(subset(screenviews[["currentData"]]))
-
-tagpairevents_columns <- c("userId", "tagDate", "eventTag", 
+participants_uuids <- read.csv("../../participants_1.txt", header = FALSE, sep =';',  fileEncoding="UTF-8-BOM")
+tagpairevents_columns <- c("userId", "screenName", "eventTag", "tagDate",
                            "tagValue1", "tagValue2")
-tagpairevents <- get_embedded("tagpairevents", tagpairevents_columns, admin_url, 1000)
-tagpairevents_data <- unique(tagpairevents[["currentData"]])
-audio_events_syntest <- subset(tagpairevents_data, eventTag == "StimulusAudioShown" & grepl("SynTest", tagValue1) & !grepl("SynTest_Pract", tagValue1))
-audio_events_idioms <- subset(tagpairevents_data, eventTag == "StimulusCodeAudioShown" & grepl("Idiom", tagValue1) & !grepl("example", tagValue1) &
-                                !grepl("_A", tagValue2) & !grepl("_B", tagValue2) & !grepl("_C", tagValue2) & !grepl("_D", tagValue2))
-
-responsesSyntest <- subset(stimulusresponses_data, screenName=="syntest" & !is.na(isCorrect))
-responsesIdioms <- subset(stimulusresponses_data, screenName=="idioms" & !is.na(isCorrect))
-
-frinexScores <- subset(tagpairevents_data, tagValue1=="gameSummary")
+screenviews_columns <- c("userId", "screenName", "submitDate", "viewDate")
+stimulusresponses_columns <- c("userId", "screenName", "stimulusId", "response", "isCorrect", "tagDate", "eventMs")
 
 
 stimuli_origin_syntest <- subset(stimuli_origin, substr(Item_nr, 1, 7)=="SynTest" & Item_nr != "SynTest_Pract")
@@ -75,13 +56,13 @@ stimuli_origin_idioms <- subset(stimuli_origin, substr(Item_nr, 1, 5)=="Idiom")
 
 ## help function 
 
-harvest_scores <- function(listUuids, responses, roundname, screenviews_info, startScreenName, endScreenName, nStimuli, frinexScores, stimuliOrigin, audioEvents) {
+harvest_scores <- function(listUuids, roundname, startScreenName, endScreenName, nStimuli, stimuliOrigin) {
   
   user_scores <- data.frame()
   user_responses <- data.frame()
-  users_multiple_submission <- data.frame(userId=character(), reason=character(), details = character())
-  users_suspicious_audio <- data.frame(userId=character(), reason=character(), details = character())
+  users_irregularities <- data.frame(userId=character(), message=character())
   
+ 
   
   for (rawUUID in listUuids){
     
@@ -89,31 +70,54 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     user <- paste0("uuid-", rawUUID)
     print(user)
     
-    raw_user_responses <- subset(responses, userId == user)
-    raw_user_responses <- raw_user_responses[order(raw_user_responses$tagDate),]
+    stimulusresponses_user_raw <- findByUserIdOrderByTagDateAsc(admin_url, user, "stimulusresponses", "findByUserIdOrderByTagDateAsc", stimulusresponses_columns)
     
+    if (is.null(stimulusresponses_user_raw)) {
+      message <- "No stimulusresponses record for this user"
+      users_irregularities <-  add_row(users_irregularities, userId=user, message = message)
+      next
+    }
+    
+    events <- findByUserIdOrderByTagDateAsc(admin_url, user, "tagpairevents", "findByUserIdOrderByTagDateAsc", tagpairevents_columns)
+    userFrinexScores <- subset(events, tagValue1=="gameSummary")
+    
+    if (roundname == "syntest") {
+      stimulusresponses_user_raw <- subset(stimulusresponses_user_raw, screenName=="syntest" & !is.na(isCorrect))
+      events <- subset(events, eventTag == "StimulusAudioShown" & grepl("SynTest", tagValue1) & !grepl("SynTest_Pract", tagValue1))
+      
+    } 
+    
+    if (roundname == "idioms") {
+      stimulusresponses_user_raw<- subset(stimulusresponses_user_raw, screenName=="idioms" & !is.na(isCorrect))
+      events <- subset(events, eventTag == "StimulusCodeAudioShown" & grepl("Idiom", tagValue1) & !grepl("example", tagValue1) &   !grepl("_A", tagValue2) & !grepl("_B", tagValue2) & !grepl("_C", tagValue2) & !grepl("_D", tagValue2))
+    }
+    
+   
     # filtering multiple answers
-    new_user_responses <- raw_user_responses[1,]
-    for (i in 2:nrow(raw_user_responses)) {
+    new_user_responses <- stimulusresponses_user_raw[1,]
+    for (i in 2:nrow(stimulusresponses_user_raw)) {
       isAlHere <- FALSE
       for (j in 1:nrow(new_user_responses)) {
-        if (raw_user_responses[i,]$stimulusId == new_user_responses[j,]$stimulusId) {
-          if (raw_user_responses[i,]$response == new_user_responses[j,]$response) {
+        if (stimulusresponses_user_raw[i,]$stimulusId == new_user_responses[j,]$stimulusId) {
+          if (stimulusresponses_user_raw[i,]$response == new_user_responses[j,]$response) {
             # duplicated submission of the same response (the system is double-secure in the case of broken i-net connection)
             isAlHere <- TRUE
           } else {
-            users_multiple_submission <- add_row(users_multiple_submission, userId = user,
-                                                   reason = paste0(raw_user_responses[i,]$stimulusId, " with the responses ", raw_user_responses[i,]$response, " and ",  new_user_responses[j,]$response),
-                                                   details = "the latest of the submitted will be considered")
+            message <- paste(stimulusresponses_user_raw[i,]$stimulusId, "with the responses", 
+                             stimulusresponses_user_raw[i,]$response, "and",  
+                             new_user_responses[j,]$response, 
+                             "the latest of the submitted will be considered", sep = " ")
+             users_irregularities <- add_row(users_irregularities,userId = user, message = message)
+           
               isAlHere <- TRUE
-              if (raw_user_responses[i,]$tagDate > new_user_responses[j,]$tagDate) {
-                new_user_responses[j,] <- raw_user_responses[i,]
+              if (stimulusresponses_user_raw[i,]$tagDate > new_user_responses[j,]$tagDate) {
+                new_user_responses[j,] <- stimulusresponses_user_raw[i,]
             }
           }
         }
       }
       if (!isAlHere) {
-        new_user_responses <- rbind(new_user_responses, raw_user_responses[i,])
+        new_user_responses <- rbind(new_user_responses, stimulusresponses_user_raw[i,])
       }
     }
     
@@ -161,16 +165,14 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
     # checking audio events
     for (stimulusID in stimuliOrigin$Item_nr ) {
-      audio_rows <- subset(audioEvents, userId == user & tagValue1 == stimulusID) 
+      audio_rows <- subset(events, tagValue1 == stimulusID) 
       if (nrow(audio_rows) == 0) {
-        users_suspicious_audio <- add_row(users_suspicious_audio, userId = user,
-                                        reason = paste0("the audio for the stimulus ", stimulusID, " was not presented."),
-                                        details = " ")
+        message <-paste0("the audio for the stimulus ", stimulusID, " was not presented.")
+        users_irregularities <- add_row(users_irregularities, userId = user, message = message)
       }
       if (nrow(audio_rows) >1) {
-        users_suspicious_audio <- add_row(users_suspicious_audio, userId = user,
-                                             reason = paste0("the audio for the stimulus ", stimulusID, " was shown more than once."),
-                                             details = paste0(nrow(audio_rows), " times"))
+        message <-paste("The audio for the stimulus", stimulusID, "was shown more than once.", nrow(audio_rows), "times", sep =" ")
+        users_irregularities <- add_row(users_irregularities, userId = user, message = message)
       }
     }
     
@@ -181,14 +183,14 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
   
     # Get test duration for participant from screenviews
-    screenviews_1user <- subset(screenviews_info, userId == user)
+    screenviews_1user <- findByUserIdOrderByTagDateAsc(admin_url, user, "screenviews", "findByUserIdOrderByViewDateAsc", screenviews_columns)
     
-    test_duration <- get_test_duration(screenviews_1user, 
-                                       startScreenName, nchar(startScreenName), endScreenName, TRUE)
+    test_duration <- get_duration_min_via_view_date(screenviews_1user, startScreenName, endScreenName)
     
-    startTime <- test_duration[["startTime"]]
-    endTime <- test_duration[["endTime"]]
-    testDuration <- test_duration[["testDuration"]]
+    startTime <- test_duration[["start_time_s"]]
+    endTime <- test_duration[["end_time_s"]]
+    testDurationSec <- endTime - startTime
+    testDuration <- testDurationSec
     
     print("startTime")
     print(startTime)
@@ -214,11 +216,12 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     }
     
     # sanity check
-    userFrinexScores <- subset(frinexScores, userId==user)
+    
+    
     userFrinexSyntestCorrect <- subset(userFrinexScores, eventTag == "totalScoreSyntest")
     if (nrow(userFrinexSyntestCorrect) != 1) {
       print("Weird amount of scores for tag totalScoreSyntest")
-      print(nrow(userFrineSyntestxCorrect))
+      print(nrow(userFrinexSyntestxCorrect))
       stop()
     }
     userFrinexSyntestIncorrect <- subset(userFrinexScores, eventTag == "totalErrorsSyntest")
@@ -277,7 +280,7 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
     
   }
   
-  return(list(user_responses=user_responses, user_scores=user_scores, mutiple_responses=users_multiple_submission, irregular_audio=users_suspicious_audio))
+  return(list(user_responses=user_responses, user_scores=user_scores, irregularities=users_irregularities))
  
   
 }
@@ -286,58 +289,45 @@ harvest_scores <- function(listUuids, responses, roundname, screenviews_info, st
 ##--Get aggregates syntest ----------------------------------------------##
 
 
-results_syntest <- harvest_scores(participants_uuids$V1, responsesSyntest, "syntest", screenviews_data, "syntest", "instructionsIdioms", n_stimuli_pictures, frinexScores, stimuli_origin_syntest, audio_events_syntest)
+results_syntest <- harvest_scores(participants_uuids$V1,"syntest", "syntest", "instructionsIdioms", n_stimuli_pictures, stimuli_origin_syntest)
+scores_syntest <- results_syntest$user_scores
+responses_syntest <- results_syntest$user_responses
+irregularities_syntest <- results_syntest$irregularities
+write.csv(responses_syntest, file=paste0(experiment_abr,".syntest_item_data.csv"))
 
-user_scores_syntest <- results_syntest$user_scores
-user_responses_syntest <- results_syntest$user_responses
-write.csv(user_responses_syntest, file=paste0(experiment_abr,".syntest_item_data.csv"))
-
-if (nrow(participants_uuids) != nrow(user_scores_syntest) ) {
-  print("Syntest: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
-  print(nrows(participants_uuids))
-  print(nrows(user_scores_syntest))
+if (nrow(participants_uuids) != nrow(scores_syntest) ) {
+  message <- paste("Syntest: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:", 
+  nrows(participants_uuids), 
+  nrows(scores_syntest), sep = " ")
+  irregularities_syntest < - add_row(irregularities_syntest, userId="summary", message = message)
 }
 
-users_multiple_submission <- results_syntest$mutiple_responses
-if (nrow(users_multiple_submission)==0) {
-  users_multiple_submission <- add_row(users_multiple_submission, userId = " ", reason = "no multiple responses on the samestimuli were detected", details =" ")
-}
-write.csv(users_multiple_submission, file=paste0(experiment_abr,".syntest_multiple_responses.csv"))
 
-users_suspicious_audio <- results_syntest$irregular_audio
-if (nrow(users_suspicious_audio)==0) {
-  users_suspicious_audio <- add_row(users_suspicious_audio, userId = " ", reason = "no irregularities were detected", details =" ")
-}
-write.csv(users_suspicious_audio, file=paste0(experiment_abr,".syntest_irregular_audios.csv"))
+write.csv(irregularities_syntest, file=paste0(experiment_abr,".syntest_irregularities.csv"))
 
-results_idioms <- harvest_scores(participants_uuids$V1, responsesIdioms, "idioms", screenviews_data, "idioms", "Admin", n_stimuli_idioms, frinexScores, stimuli_origin_idioms, audio_events_idioms)
-user_scores_idioms <- results_idioms$user_scores
-user_responses_idioms <- results_idioms$user_responses
-write.csv(user_responses_idioms, file=paste0(experiment_abr,".idioms_item_data.csv"))
+results_idioms <- harvest_scores(participants_uuids$V1, "idioms", "idioms", "Admin", n_stimuli_idioms, stimuli_origin_idioms)
+scores_idioms <- results_idioms$user_scores
+responses_idioms <- results_idioms$user_responses
+irregularities_idioms <- results_idioms$irregularities
 
-if (nrow(participants_uuids) != nrow(user_scores_idioms) ) {
-  print("Idioms: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:")
-  print(nrows(participants_uuids))
-  print(nrows(user_idioms))
+write.csv(responses_idioms, file=paste0(experiment_abr,".idioms_item_data.csv"))
+
+if (nrow(participants_uuids) != nrow(scores_idioms) ) {
+  message <- paste("Idioms: there is a discrepancy between the number of rows in user-scores table and participant uuids, resp:", 
+                   nrows(participants_uuids), 
+                   nrows(user_idioms), sep = " ")
+  irregularities_idioms < - add_row(irregularities_idiomst, userId="summary", message = message)
 }
 
-user_scores <- merge(user_scores_syntest, user_scores_idioms)
-user_scores$totalCorrect <- (user_scores$syntestCorrect + user_scores$idiomsCorrect)
-user_scores$totalIncorrect <- (user_scores$syntestIncorrect + user_scores$idiomsIncorrect)
+write.csv(irregularities_idioms, file=paste0(experiment_abr,".idioms_irregularities.csv"))
 
-write.csv(user_scores, file=paste0(experiment_abr,".user_scores.csv"))
 
-users_multiple_submission <- results_idioms$mutiple_responses
-if (nrow(users_multiple_submission)==0) {
-  users_multiple_submission <- add_row(users_multiple_submission, userId = " ", reason = "no multiple responses on the samestimuli were detected", details =" ")
-}
-write.csv(users_multiple_submission, file=paste0(experiment_abr,".idioms_multiple_responses.csv"))
+scores <- merge(scores_syntest, scores_idioms)
+scores$totalCorrect <- (scores$syntestCorrect + scores$idiomsCorrect)
+scores$totalIncorrect <- (scores$syntestIncorrect + scores$idiomsIncorrect)
 
-users_suspicious_audio <- results_idioms$irregular_audio
-if (nrow(users_suspicious_audio)==0) {
-  users_suspicious_audio <- add_row(users_suspicious_audio, userId = " ", reason = "no irregularities were detected", details =" ")
-}
-write.csv(users_suspicious_audio, file=paste0(experiment_abr,".idioms_irregular_audios.csv"))
+
+write.csv(scores, file=paste0(experiment_abr,".scores.csv"))
 
 
 
